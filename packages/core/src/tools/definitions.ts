@@ -1176,17 +1176,25 @@ part(0,2,0,2,1,1,"b")`,
                 type: 'array',
                 minItems: 2,
                 maxItems: 3,
-                items: {
-                  anyOf: [
-                    { type: 'string' },
-                    {
-                      type: 'array',
-                      items: { type: 'number' },
-                      minItems: 3,
-                      maxItems: 3
-                    }
-                  ]
-                }
+                additionalItems: false,
+                items: [
+                  {
+                    type: 'string',
+                    minLength: 1
+                  },
+                  {
+                    type: 'array',
+                    items: { type: 'number' },
+                    minItems: 3,
+                    maxItems: 3
+                  },
+                  {
+                    type: 'array',
+                    items: { type: 'number' },
+                    minItems: 3,
+                    maxItems: 3
+                  }
+                ]
               }
             },
             custom: {
