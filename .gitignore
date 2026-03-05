@@ -63,6 +63,9 @@ lune.zip
 # Build library (local user data)
 build-library/
 
+# Local notes
+notes/
+
 # Shell/OS junk
 bash.exe.stackdump
 *.FullName
