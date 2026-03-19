@@ -19,6 +19,7 @@ function createConnection(port: number): Connection {
 		maxRetryDelay: 5,
 		retryBackoffMultiplier: 1.2,
 		lastHttpOk: false,
+		lastMcpOk: false,
 		mcpWaitStartTime: undefined,
 		isPolling: false,
 		heartbeatConnection: undefined,

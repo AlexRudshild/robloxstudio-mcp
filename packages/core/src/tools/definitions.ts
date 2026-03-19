@@ -804,6 +804,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         code: {
           type: 'string',
           description: 'Luau code to execute'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
       },
       required: ['code']
@@ -864,7 +868,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'start_playtest',
     category: 'read',
-    description: 'Start playtest. Captures print/warn/error via LogService. Poll with get_playtest_output, end with stop_playtest.',
+    description: 'Start playtest. Captures print/warn/error via LogService. Poll with get_playtest_output, end with stop_playtest. Use numPlayers for multi-client testing (server + N clients).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -872,6 +876,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'string',
           enum: ['play', 'run'],
           description: 'Play mode'
+        },
+        numPlayers: {
+          type: 'number',
+          description: 'Number of client players (1-8). Triggers server + clients mode via TestService.'
         }
       },
       required: ['mode']
@@ -890,6 +898,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'get_playtest_output',
     category: 'read',
     description: 'Poll output buffer without stopping. Returns isRunning and captured messages.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
+        }
+      }
+    }
+  },
+
+  // === Multi-Instance ===
+  {
+    name: 'get_connected_instances',
+    category: 'read',
+    description: 'List all connected plugin instances with their roles. Use during multi-client playtest to discover server and client instances for targeted commands.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -1517,6 +1541,10 @@ part(0,2,0,2,1,1,"b")`,
           type: 'string',
           enum: ['up', 'down'],
           description: 'Scroll direction (only for "scroll" action)'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
       },
       required: ['action', 'x', 'y']
@@ -1541,6 +1569,10 @@ part(0,2,0,2,1,1,"b")`,
         duration: {
           type: 'number',
           description: 'Hold duration in seconds for "tap" action (default: 0.1). Use longer values for sustained input like walking.'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
       },
       required: ['keyCode']
@@ -1571,6 +1603,10 @@ part(0,2,0,2,1,1,"b")`,
         timeout: {
           type: 'number',
           description: 'Max seconds to wait for navigation to complete (default: 25)'
+        },
+        target: {
+          type: 'string',
+          description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
       }
     }

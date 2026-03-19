@@ -5,7 +5,6 @@ const { getInstanceByPath } = Utils;
 const Selection = game.GetService("Selection");
 const Workspace = game.GetService("Workspace");
 
-const RENDER_ORIGIN = new Vector3(100000, 100000, 100000);
 const DEFAULT_PADDING = 1.35;
 const DEFAULT_BACKDROP_COLOR = Color3.fromRGB(0, 255, 0);
 
@@ -44,53 +43,15 @@ function getCameraDirection(preset: CameraPreset): Vector3 {
 	return new Vector3(-1, 0.7, 1).Unit;
 }
 
-function collectBaseParts(root: Instance): BasePart[] {
-	const parts: BasePart[] = [];
-	if (root.IsA("BasePart")) {
-		parts.push(root);
-	}
-	for (const desc of root.GetDescendants()) {
-		if (desc.IsA("BasePart")) {
-			parts.push(desc);
-		}
-	}
-	return parts;
-}
-
-function createRenderableClone(target: Instance, stage: Model): Model | undefined {
+function getBoundingInfo(target: Instance): [CFrame, Vector3] {
 	if (target.IsA("Model")) {
-		const clone = target.Clone() as Model;
-		clone.Parent = stage;
-		clone.PivotTo(new CFrame(RENDER_ORIGIN));
-		return clone;
+		return target.GetBoundingBox();
 	}
-
-	if (target.IsA("BasePart")) {
-		const wrapper = new Instance("Model");
-		wrapper.Name = target.Name;
-		wrapper.Parent = stage;
-
-		const clone = target.Clone() as BasePart;
-		clone.Parent = wrapper;
-		clone.Position = RENDER_ORIGIN;
-		return wrapper;
-	}
-
-	return undefined;
-}
-
-function styleBaseParts(parts: BasePart[]) {
-	for (const part of parts) {
-		part.Anchored = true;
-		part.CanCollide = false;
-		part.CanTouch = false;
-		part.CanQuery = false;
-		part.CastShadow = false;
-	}
+	const part = target as BasePart;
+	return [part.CFrame, part.Size];
 }
 
 function createBackdrop(
-	parent: Instance,
 	focusPosition: Vector3,
 	cameraDirection: Vector3,
 	radius: number,
@@ -98,7 +59,7 @@ function createBackdrop(
 	backdropColor: Color3,
 	fieldOfView: number,
 	aspectRatio: number,
-) {
+): Part {
 	const frustumDistance = cameraDistance + radius + 10;
 	const backdropHeight = math.max(radius * 6, 2 * math.tan(math.rad(fieldOfView) / 2) * frustumDistance * 1.2);
 	const backdropWidth = math.max(radius * 6, backdropHeight * aspectRatio);
@@ -117,7 +78,7 @@ function createBackdrop(
 		focusPosition.sub(cameraDirection.mul(radius + 6)),
 		focusPosition,
 	);
-	backdrop.Parent = parent;
+	backdrop.Parent = Workspace;
 
 	return backdrop;
 }
@@ -152,28 +113,12 @@ function renderModelScreenshot(requestData: Record<string, unknown>) {
 	const previousFieldOfView = currentCamera.FieldOfView;
 	const previousCameraSubject = currentCamera.CameraSubject;
 
-	let stage: Model | undefined;
+	let backdrop: Part | undefined;
 
 	const [ok, result] = pcall(() => {
-		stage = new Instance("Model");
-		stage.Name = "_MCPRenderStage";
-		stage.Parent = Workspace;
-
-		const renderRoot = createRenderableClone(target, stage);
-		if (!renderRoot) {
-			return { error: "Failed to clone render target" };
-		}
-
-		const baseParts = collectBaseParts(renderRoot);
-		if (baseParts.size() === 0) {
-			return { error: "Target does not contain any BaseParts to render" };
-		}
-
-		styleBaseParts(baseParts);
-
-		const [boundingBoxCFrame, boundingBoxSize] = renderRoot.GetBoundingBox();
-		const focusPosition = boundingBoxCFrame.Position;
-		const radius = math.max(boundingBoxSize.Magnitude / 2, 2);
+		const [boundingCFrame, boundingSize] = getBoundingInfo(target);
+		const focusPosition = boundingCFrame.Position;
+		const radius = math.max(boundingSize.Magnitude / 2, 2);
 		const fieldOfView = currentCamera.FieldOfView > 0 ? currentCamera.FieldOfView : 70;
 		const aspectRatio = currentCamera.ViewportSize.Y > 0
 			? currentCamera.ViewportSize.X / currentCamera.ViewportSize.Y
@@ -181,8 +126,7 @@ function renderModelScreenshot(requestData: Record<string, unknown>) {
 		const cameraDirection = getCameraDirection(cameraPreset);
 		const cameraDistance = math.max(12, (radius * padding) / math.tan(math.rad(fieldOfView) / 2));
 
-		createBackdrop(
-			stage,
+		backdrop = createBackdrop(
 			focusPosition,
 			cameraDirection,
 			radius,
@@ -219,22 +163,22 @@ function renderModelScreenshot(requestData: Record<string, unknown>) {
 	});
 
 	pcall(() => {
-		currentCamera.CameraType = previousCameraType;
 		currentCamera.CFrame = previousCameraCFrame;
 		currentCamera.Focus = previousCameraFocus;
 		currentCamera.FieldOfView = previousFieldOfView;
 		if (previousCameraSubject) {
 			currentCamera.CameraSubject = previousCameraSubject;
 		}
+		currentCamera.CameraType = previousCameraType;
 	});
 
 	pcall(() => {
 		Selection.Set(previousSelection);
 	});
 
-	if (stage) {
+	if (backdrop) {
 		pcall(() => {
-			stage!.Destroy();
+			backdrop!.Destroy();
 		});
 	}
 

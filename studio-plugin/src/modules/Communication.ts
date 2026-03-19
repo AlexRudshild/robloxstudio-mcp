@@ -13,7 +13,16 @@ import AssetHandlers from "./handlers/AssetHandlers";
 import CaptureHandlers from "./handlers/CaptureHandlers";
 import InputHandlers from "./handlers/InputHandlers";
 import RenderHandlers from "./handlers/RenderHandlers";
-import { Connection, RequestPayload, PollResponse } from "../types";
+import { Connection, RequestPayload, PollResponse, ReadyResponse } from "../types";
+
+const instanceId = HttpService.GenerateGUID(false);
+let assignedRole: string | undefined;
+
+function detectRole(): string {
+	if (RunService.IsServer() && RunService.IsRunMode()) return "server";
+	if (RunService.IsClient()) return "client";
+	return "edit";
+}
 
 type Handler = (data: Record<string, unknown>) => unknown;
 
@@ -125,7 +134,7 @@ function pollForRequests(connIndex: number) {
 
 	const [success, result] = pcall(() => {
 		return HttpService.RequestAsync({
-			Url: `${conn.serverUrl}/poll`,
+			Url: `${conn.serverUrl}/poll?instanceId=${instanceId}`,
 			Method: "GET",
 			Headers: { "Content-Type": "application/json" },
 		});
@@ -144,6 +153,7 @@ function pollForRequests(connIndex: number) {
 		const data = HttpService.JSONDecode(result.Body) as PollResponse;
 		const mcpConnected = data.mcpConnected === true;
 		conn.lastHttpOk = true;
+		conn.lastMcpOk = mcpConnected;
 
 		if (connIndex === State.getActiveTabIndex()) {
 			const el = ui;
@@ -188,6 +198,7 @@ function pollForRequests(connIndex: number) {
 						if (discovered !== undefined && discovered !== conn.port) {
 							conn.port = discovered;
 							conn.serverUrl = `http://localhost:${discovered}`;
+							UI.updateTabLabel(connIndex);
 							if (connIndex === State.getActiveTabIndex()) {
 								UI.getElements().urlInput.Text = conn.serverUrl;
 							}
@@ -226,6 +237,7 @@ function pollForRequests(connIndex: number) {
 					conn.serverUrl = `http://localhost:${discovered}`;
 					conn.consecutiveFailures = 0;
 					conn.currentRetryDelay = 0.5;
+					UI.updateTabLabel(connIndex);
 					if (connIndex === State.getActiveTabIndex()) {
 						UI.getElements().urlInput.Text = conn.serverUrl;
 					}
@@ -333,6 +345,7 @@ function activatePlugin(connIndex?: number) {
 		conn.serverUrl = ui.urlInput.Text;
 		const [portStr] = conn.serverUrl.match(":(%d+)$");
 		if (portStr) conn.port = tonumber(portStr) ?? conn.port;
+		UI.updateTabLabel(idx);
 		UI.updateUIState();
 	}
 	UI.updateTabDot(idx);
@@ -342,6 +355,7 @@ function activatePlugin(connIndex?: number) {
 		if (discoveredPort !== undefined) {
 			conn.port = discoveredPort;
 			conn.serverUrl = `http://localhost:${discoveredPort}`;
+			UI.updateTabLabel(idx);
 			if (idx === State.getActiveTabIndex()) {
 				ui.urlInput.Text = conn.serverUrl;
 			}
@@ -358,14 +372,20 @@ function activatePlugin(connIndex?: number) {
 			});
 		}
 
-		pcall(() => {
-			HttpService.RequestAsync({
+		const [readyOk, readyResult] = pcall(() => {
+			return HttpService.RequestAsync({
 				Url: `${conn.serverUrl}/ready`,
 				Method: "POST",
 				Headers: { "Content-Type": "application/json" },
-				Body: HttpService.JSONEncode({ pluginReady: true, timestamp: tick() }),
+				Body: HttpService.JSONEncode({ instanceId, role: detectRole(), pluginReady: true, timestamp: tick() }),
 			});
 		});
+		if (readyOk && readyResult.Success) {
+			const [parseOk, readyData] = pcall(() => HttpService.JSONDecode(readyResult.Body) as ReadyResponse);
+			if (parseOk && readyData.assignedRole) {
+				assignedRole = readyData.assignedRole;
+			}
+		}
 	});
 }
 
@@ -375,6 +395,7 @@ function deactivatePlugin(connIndex?: number) {
 	if (!conn) return;
 
 	conn.isActive = false;
+	conn.lastMcpOk = false;
 
 	if (idx === State.getActiveTabIndex()) UI.updateUIState();
 	UI.updateTabDot(idx);
@@ -384,7 +405,7 @@ function deactivatePlugin(connIndex?: number) {
 			Url: `${conn.serverUrl}/disconnect`,
 			Method: "POST",
 			Headers: { "Content-Type": "application/json" },
-			Body: HttpService.JSONEncode({ timestamp: tick() }),
+			Body: HttpService.JSONEncode({ instanceId, timestamp: tick() }),
 		});
 	});
 

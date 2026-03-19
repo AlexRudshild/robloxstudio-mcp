@@ -169,14 +169,16 @@ export class RobloxStudioMCPServer {
             return await this.tools.getSelection();
 
           case 'execute_luau':
-            return await this.tools.executeLuau((args as any)?.code as string);
+            return await this.tools.executeLuau((args as any)?.code as string, (args as any)?.target);
 
           case 'start_playtest':
-            return await this.tools.startPlaytest((args as any)?.mode as string);
+            return await this.tools.startPlaytest((args as any)?.mode as string, (args as any)?.numPlayers);
           case 'stop_playtest':
             return await this.tools.stopPlaytest();
           case 'get_playtest_output':
-            return await this.tools.getPlaytestOutput();
+            return await this.tools.getPlaytestOutput((args as any)?.target);
+          case 'get_connected_instances':
+            return await this.tools.getConnectedInstances();
 
           case 'export_build':
             return await this.tools.exportBuild((args as any)?.instancePath as string, (args as any)?.outputId, (args as any)?.style);
@@ -248,11 +250,11 @@ export class RobloxStudioMCPServer {
             return await this.tools.captureScreenshot();
 
           case 'simulate_mouse_input':
-            return await this.tools.simulateMouseInput((args as any)?.action as string, (args as any)?.x as number, (args as any)?.y as number, (args as any)?.button, (args as any)?.scrollDirection);
+            return await this.tools.simulateMouseInput((args as any)?.action as string, (args as any)?.x as number, (args as any)?.y as number, (args as any)?.button, (args as any)?.scrollDirection, (args as any)?.target);
           case 'simulate_keyboard_input':
-            return await this.tools.simulateKeyboardInput((args as any)?.keyCode as string, (args as any)?.action, (args as any)?.duration);
+            return await this.tools.simulateKeyboardInput((args as any)?.keyCode as string, (args as any)?.action, (args as any)?.duration, (args as any)?.target);
           case 'character_navigation':
-            return await this.tools.characterNavigation((args as any)?.position, (args as any)?.instancePath, (args as any)?.waitForCompletion, (args as any)?.timeout);
+            return await this.tools.characterNavigation((args as any)?.position, (args as any)?.instancePath, (args as any)?.waitForCompletion, (args as any)?.timeout, (args as any)?.target);
           case 'find_and_replace_in_scripts':
             return await this.tools.findAndReplaceInScripts((args as any)?.pattern as string, (args as any)?.replacement as string, {
               caseSensitive: (args as any)?.caseSensitive,
@@ -290,11 +292,12 @@ export class RobloxStudioMCPServer {
 
     // Try to bind as primary
     try {
-      primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames);
+      primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
       const result = await listenWithRetry(primaryApp, host, basePort, 5);
       httpHandle = result.server;
       boundPort = result.port;
       console.error(`HTTP server listening on ${host}:${boundPort} for Studio plugin (primary mode)`);
+      console.error(`Streamable HTTP MCP endpoint: http://localhost:${boundPort}/mcp`);
     } catch {
       // All ports in use — fall back to proxy mode
       bridgeMode = 'proxy';
@@ -310,7 +313,7 @@ export class RobloxStudioMCPServer {
         try {
           this.bridge = new BridgeService();
           this.tools = new RobloxStudioTools(this.bridge);
-          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames);
+          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
           const result = await listenWithRetry(primaryApp, host, basePort, 5);
           httpHandle = result.server;
           boundPort = result.port;
@@ -332,7 +335,7 @@ export class RobloxStudioMCPServer {
     let legacyHandle: http.Server | undefined;
     let legacyApp: ReturnType<typeof createHttpServer> | undefined;
     if (boundPort !== LEGACY_PORT && bridgeMode === 'primary') {
-      legacyApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames);
+      legacyApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
       try {
         const result = await listenWithRetry(legacyApp, host, LEGACY_PORT, 1);
         legacyHandle = result.server;
@@ -380,13 +383,15 @@ export class RobloxStudioMCPServer {
 
     const cleanupInterval = setInterval(() => {
       this.bridge.cleanupOldRequests();
+      this.bridge.cleanupStaleInstances();
     }, 5000);
 
-    const shutdown = () => {
+    const shutdown = async () => {
       console.error('Shutting down MCP server...');
       clearInterval(activityInterval);
       clearInterval(cleanupInterval);
       if (promotionInterval) clearInterval(promotionInterval);
+      await this.server.close().catch(() => {});
       if (httpHandle) httpHandle.close();
       if (legacyHandle) legacyHandle.close();
       process.exit(0);

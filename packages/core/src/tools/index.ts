@@ -76,10 +76,12 @@ function resolveSingleRenderSavePath(
 
 export class RobloxStudioTools {
   private client: StudioHttpClient;
+  private bridge: BridgeService;
   private openCloudClient: OpenCloudClient;
 
   constructor(bridge: BridgeService) {
     this.client = new StudioHttpClient(bridge);
+    this.bridge = bridge;
     this.openCloudClient = new OpenCloudClient();
   }
 
@@ -695,11 +697,11 @@ export class RobloxStudioTools {
     };
   }
 
-  async executeLuau(code: string) {
+  async executeLuau(code: string, target?: string) {
     if (!code) {
       throw new Error('Code is required for execute_luau');
     }
-    const response = await this.client.request('/api/execute-luau', { code });
+    const response = await this.client.request('/api/execute-luau', { code }, target || 'edit');
     return {
       content: [
         {
@@ -710,11 +712,15 @@ export class RobloxStudioTools {
     };
   }
 
-  async startPlaytest(mode: string) {
+  async startPlaytest(mode: string, numPlayers?: number) {
     if (mode !== 'play' && mode !== 'run') {
       throw new Error('mode must be "play" or "run"');
     }
-    const response = await this.client.request('/api/start-playtest', { mode });
+    const data: Record<string, unknown> = { mode };
+    if (numPlayers !== undefined) {
+      data.numPlayers = numPlayers;
+    }
+    const response = await this.client.request('/api/start-playtest', data);
     return {
       content: [
         {
@@ -737,13 +743,25 @@ export class RobloxStudioTools {
     };
   }
 
-  async getPlaytestOutput() {
-    const response = await this.client.request('/api/get-playtest-output', {});
+  async getPlaytestOutput(target?: string) {
+    const response = await this.client.request('/api/get-playtest-output', {}, target || 'edit');
     return {
       content: [
         {
           type: 'text',
           text: JSON.stringify(response)
+        }
+      ]
+    };
+  }
+
+  async getConnectedInstances() {
+    const instances = this.bridge.getInstances();
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ instances, count: instances.length })
         }
       ]
     };
@@ -1565,13 +1583,13 @@ export class RobloxStudioTools {
     return this.batchRenderObjects(parentPath, outputDir, options);
   }
 
-  async simulateMouseInput(action: string, x: number, y: number, button?: string, scrollDirection?: string) {
+  async simulateMouseInput(action: string, x: number, y: number, button?: string, scrollDirection?: string, target?: string) {
     if (!action) {
       throw new Error('action is required for simulate_mouse_input');
     }
     const response = await this.client.request('/api/simulate-mouse-input', {
       action, x, y, button, scrollDirection
-    });
+    }, target || 'edit');
     return {
       content: [{
         type: 'text',
@@ -1580,13 +1598,13 @@ export class RobloxStudioTools {
     };
   }
 
-  async simulateKeyboardInput(keyCode: string, action?: string, duration?: number) {
+  async simulateKeyboardInput(keyCode: string, action?: string, duration?: number, target?: string) {
     if (!keyCode) {
       throw new Error('keyCode is required for simulate_keyboard_input');
     }
     const response = await this.client.request('/api/simulate-keyboard-input', {
       keyCode, action, duration
-    });
+    }, target || 'edit');
     return {
       content: [{
         type: 'text',
@@ -1595,13 +1613,13 @@ export class RobloxStudioTools {
     };
   }
 
-  async characterNavigation(position?: number[], instancePath?: string, waitForCompletion?: boolean, timeout?: number) {
+  async characterNavigation(position?: number[], instancePath?: string, waitForCompletion?: boolean, timeout?: number, target?: string) {
     if (!position && !instancePath) {
       throw new Error('Either position or instancePath is required for character_navigation');
     }
     const response = await this.client.request('/api/character-navigation', {
       position, instancePath, waitForCompletion, timeout
-    });
+    }, target || 'edit');
     return {
       content: [{
         type: 'text',

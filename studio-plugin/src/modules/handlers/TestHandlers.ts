@@ -116,6 +116,7 @@ function cleanupStopListener() {
 
 function startPlaytest(requestData: Record<string, unknown>) {
 	const mode = requestData.mode as string | undefined;
+	const numPlayers = requestData.numPlayers as number | undefined;
 
 	if (mode !== "play" && mode !== "run") {
 		return { error: 'mode must be "play" or "run"' };
@@ -153,6 +154,11 @@ function startPlaytest(requestData: Record<string, unknown>) {
 		warn(`[MCP] Failed to inject stop listener: ${injErr}`);
 	}
 
+	if (numPlayers !== undefined && mode === "run") {
+		const TestService = game.GetService("TestService") as TestService & { NumberOfPlayers: number };
+		TestService.NumberOfPlayers = math.clamp(numPlayers, 1, 8);
+	}
+
 	task.spawn(() => {
 		const [ok, result] = pcall(() => {
 			if (mode === "play") {
@@ -176,7 +182,10 @@ function startPlaytest(requestData: Record<string, unknown>) {
 		cleanupStopListener();
 	});
 
-	return { success: true, message: `Playtest started in ${mode} mode` };
+	const msg = numPlayers !== undefined
+		? `Playtest started in ${mode} mode with ${numPlayers} player(s)`
+		: `Playtest started in ${mode} mode`;
+	return { success: true, message: msg };
 }
 
 function stopPlaytest(_requestData: Record<string, unknown>) {
