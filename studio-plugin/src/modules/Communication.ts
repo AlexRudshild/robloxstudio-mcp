@@ -374,19 +374,6 @@ function activatePlugin(connIndex?: number) {
 	UI.updateTabDot(idx);
 
 	task.spawn(() => {
-		if (!checkPort(conn.port)) {
-			const usedPorts = getUsedPorts(idx);
-			const discoveredPort = discoverPort(usedPorts);
-			if (discoveredPort !== undefined) {
-				conn.port = discoveredPort;
-				conn.serverUrl = `http://localhost:${discoveredPort}`;
-				UI.updateTabLabel(idx);
-				if (idx === State.getActiveTabIndex()) {
-					ui.urlInput.Text = conn.serverUrl;
-				}
-			}
-		}
-
 		if (!conn.heartbeatConnection) {
 			conn.heartbeatConnection = RunService.Heartbeat.Connect(() => {
 				const now = tick();
