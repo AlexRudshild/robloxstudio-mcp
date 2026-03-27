@@ -192,19 +192,6 @@ function pollForRequests(connIndex: number) {
 				}
 				const elapsed = tick() - (conn.mcpWaitStartTime ?? tick());
 				el.troubleshootLabel.Visible = elapsed > 8;
-				if (elapsed > 3 && elapsed % 5 < conn.pollInterval) {
-					task.spawn(() => {
-						const discovered = discoverPort(getUsedPorts(connIndex));
-						if (discovered !== undefined && discovered !== conn.port) {
-							conn.port = discovered;
-							conn.serverUrl = `http://localhost:${discovered}`;
-							UI.updateTabLabel(connIndex);
-							if (connIndex === State.getActiveTabIndex()) {
-								UI.getElements().urlInput.Text = conn.serverUrl;
-							}
-						}
-					});
-				}
 				UI.startPulseAnimation();
 			}
 		}
@@ -229,21 +216,6 @@ function pollForRequests(connIndex: number) {
 			);
 		}
 
-		if (conn.consecutiveFailures === 5 || conn.consecutiveFailures % 20 === 0) {
-			task.spawn(() => {
-				const discovered = discoverPort(getUsedPorts(connIndex));
-				if (discovered !== undefined && discovered !== conn.port) {
-					conn.port = discovered;
-					conn.serverUrl = `http://localhost:${discovered}`;
-					conn.consecutiveFailures = 0;
-					conn.currentRetryDelay = 0.5;
-					UI.updateTabLabel(connIndex);
-					if (connIndex === State.getActiveTabIndex()) {
-						UI.getElements().urlInput.Text = conn.serverUrl;
-					}
-				}
-			});
-		}
 
 		if (connIndex === State.getActiveTabIndex()) {
 			const el = ui;
@@ -304,53 +276,6 @@ function pollForRequests(connIndex: number) {
 	}
 }
 
-function getUsedPorts(excludeIndex: number): Set<number> {
-	const ports = new Set<number>();
-	const conns = State.getConnections();
-	for (let i = 0; i < conns.size(); i++) {
-		if (i !== excludeIndex && conns[i].isActive) {
-			ports.add(conns[i].port);
-		}
-	}
-	return ports;
-}
-
-function checkPort(port: number): boolean {
-	const [ok, res] = pcall(() => {
-		return HttpService.RequestAsync({
-			Url: `http://localhost:${port}/status`,
-			Method: "GET",
-			Headers: { "Content-Type": "application/json" },
-		});
-	});
-	return ok && res.Success;
-}
-
-function discoverPort(excludePorts?: Set<number>): number | undefined {
-	let firstActivePort: number | undefined;
-	for (let offset = 0; offset < 5; offset++) {
-		const port = State.BASE_PORT + offset;
-		if (excludePorts && excludePorts.has(port)) continue;
-		const [success, result] = pcall(() => {
-			return HttpService.RequestAsync({
-				Url: `http://localhost:${port}/status`,
-				Method: "GET",
-				Headers: { "Content-Type": "application/json" },
-			});
-		});
-
-		if (success && result.Success) {
-			const [ok, data] = pcall(() =>
-				HttpService.JSONDecode(result.Body) as { mcpServerActive: boolean; pluginConnected: boolean },
-			);
-			if (ok && data.mcpServerActive) {
-				if (!data.pluginConnected) return port;
-				if (firstActivePort === undefined) firstActivePort = port;
-			}
-		}
-	}
-	return firstActivePort;
-}
 
 function activatePlugin(connIndex?: number) {
 	const idx = connIndex ?? State.getActiveTabIndex();
