@@ -392,11 +392,72 @@ export class RobloxStudioTools {
       throw new Error('Instance path is required for get_script_source');
     }
     const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine });
+
+    if (response.error) {
+      return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+    }
+
+    // Script type descriptions for AI context
+    const scriptTypeInfo: Record<string, string> = {
+      'Script': 'Server Script — runs on the server only, full API access',
+      'LocalScript': 'Local Script — runs on the client (player), no ServerStorage access',
+      'ModuleScript': 'Module Script — shared library, loaded via require(), runs in caller\'s context',
+    };
+
+    // Service location descriptions for AI context
+    const serviceInfo: Record<string, string> = {
+      'Workspace': 'Workspace — 3D world, replicated to all clients',
+      'ServerScriptService': 'ServerScriptService — server-only, never replicated to clients',
+      'ServerStorage': 'ServerStorage — server-only storage, invisible to clients',
+      'StarterGui': 'StarterGui — UI templates, copied to each player\'s PlayerGui on spawn',
+      'StarterPlayerScripts': 'StarterPlayerScripts — client scripts, run on each player\'s machine',
+      'StarterCharacterScripts': 'StarterCharacterScripts — client scripts, run when character spawns',
+      'ReplicatedStorage': 'ReplicatedStorage — shared, accessible from both server and client',
+      'ReplicatedFirst': 'ReplicatedFirst — first to load on client, used for loading screens',
+      'Players': 'Players — player management service',
+      'Lighting': 'Lighting — visual environment and post-processing',
+      'SoundService': 'SoundService — background audio',
+      'Teams': 'Teams — multiplayer team management',
+      'TestService': 'TestService — automated tests',
+    };
+
+    const pathStr = (response.instancePath as string) || instancePath;
+    const topService = pathStr.split('.')[0];
+    const typeNote = scriptTypeInfo[response.className as string] || (response.className as string);
+    const serviceNote = serviceInfo[topService] || topService;
+
+    const headerLines: string[] = [
+      `Script:   ${response.name}`,
+      `Path:     ${pathStr}`,
+      `Type:     ${typeNote}`,
+      `Location: ${serviceNote}`,
+      `Lines:    ${response.lineCount} total${
+        response.isPartial
+          ? ` (showing ${response.startLine}–${response.endLine})`
+          : ''
+      }`,
+    ];
+
+    if (response.enabled === false) {
+      headerLines.push(`Status:   ⚠️  DISABLED`);
+    }
+
+    if (response.truncated) {
+      headerLines.push(`Note:     ⚠️  Truncated to first 1000 lines — use startLine/endLine to read more`);
+    }
+
+    if (Array.isArray(response.siblings) && (response.siblings as string[]).length > 0) {
+      headerLines.push(`Siblings: ${(response.siblings as string[]).join(', ')}`);
+    }
+
+    const header = headerLines.join('\n');
+    const code = (response.numberedSource || response.source) as string;
+
     return {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(response)
+          text: `${header}\n\n--- SOURCE CODE ---\n${code}`,
         }
       ]
     };
