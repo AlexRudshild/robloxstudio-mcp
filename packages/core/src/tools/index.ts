@@ -1357,6 +1357,61 @@ export class RobloxStudioTools {
     };
   }
 
+  async uploadDecal(
+    filePath: string,
+    displayName: string,
+    description?: string,
+    userId?: string,
+    groupId?: string
+  ) {
+    if (!this.openCloudClient.hasApiKey()) {
+      throw new Error(
+        'ROBLOX_OPEN_CLOUD_API_KEY environment variable is not set. Required for asset upload.'
+      );
+    }
+
+    const resolvedGroupId = groupId || process.env.ROBLOX_CREATOR_GROUP_ID;
+    const resolvedUserId = userId || process.env.ROBLOX_CREATOR_USER_ID;
+
+    if (!resolvedUserId && !resolvedGroupId) {
+      throw new Error(
+        'Creator identity required. Set ROBLOX_CREATOR_USER_ID or ROBLOX_CREATOR_GROUP_ID environment variable, or pass userId/groupId as parameters.'
+      );
+    }
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`File not found: ${filePath}`);
+    }
+
+    const fileContent = fs.readFileSync(filePath);
+    const fileName = path.basename(filePath);
+
+    const creator: { userId?: string; groupId?: string } = {};
+    if (resolvedGroupId) {
+      creator.groupId = resolvedGroupId;
+    } else {
+      creator.userId = resolvedUserId;
+    }
+
+    const result = await this.openCloudClient.createAsset(
+      {
+        assetType: 'Decal',
+        displayName,
+        description: description || '',
+        creationContext: { creator },
+      },
+      fileContent,
+      fileName
+    );
+
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify(result)
+      }]
+    };
+  }
+
   private async requestRenderObjectScreenshot(
     instancePath: string,
     options?: {

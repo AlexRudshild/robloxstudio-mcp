@@ -212,6 +212,8 @@ export class RobloxStudioMCPServer {
             return await this.tools.insertAsset((args as any)?.assetId as number, (args as any)?.parentPath, (args as any)?.position);
           case 'preview_asset':
             return await this.tools.previewAsset((args as any)?.assetId as number, (args as any)?.includeProperties, (args as any)?.maxDepth);
+          case 'upload_decal':
+            return await this.tools.uploadDecal((args as any)?.filePath as string, (args as any)?.displayName as string, (args as any)?.description, (args as any)?.userId, (args as any)?.groupId);
           case 'render_object_screenshot':
             return await this.tools.renderObjectScreenshot((args as any)?.instancePath as string, {
               cameraPreset: (args as any)?.cameraPreset,

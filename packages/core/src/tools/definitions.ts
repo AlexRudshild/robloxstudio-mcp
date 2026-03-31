@@ -1334,6 +1334,37 @@ part(0,2,0,2,1,1,"b")`,
     }
   },
   {
+    name: 'upload_decal',
+    category: 'write',
+    description: 'Upload an image file as a Decal asset to Roblox. Reads the file from disk, uploads via Open Cloud API, polls for completion, and returns the new asset ID. Requires ROBLOX_OPEN_CLOUD_API_KEY env var with asset:write scope. Also requires ROBLOX_CREATOR_USER_ID or ROBLOX_CREATOR_GROUP_ID env var (or pass userId/groupId as parameters).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'Absolute path to the image file on disk (PNG, JPG, BMP, or TGA)'
+        },
+        displayName: {
+          type: 'string',
+          description: 'Display name for the decal asset (max 50 characters)'
+        },
+        description: {
+          type: 'string',
+          description: 'Description for the decal asset (default: empty string)'
+        },
+        userId: {
+          type: 'string',
+          description: 'Roblox user ID for the asset creator. Overrides ROBLOX_CREATOR_USER_ID env var.'
+        },
+        groupId: {
+          type: 'string',
+          description: 'Roblox group ID for the asset creator. Overrides ROBLOX_CREATOR_GROUP_ID env var. Takes precedence over userId if both provided.'
+        }
+      },
+      required: ['filePath', 'displayName']
+    }
+  },
+  {
     name: 'render_object_screenshot',
     category: 'write',
     description: 'Stage a renderable Studio object by instance path, frame it with a temporary camera, capture a screenshot, and optionally save the PNG to disk. Supports Models and BaseParts such as MeshPart.',
