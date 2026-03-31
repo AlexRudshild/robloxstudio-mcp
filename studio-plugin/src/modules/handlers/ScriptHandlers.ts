@@ -193,15 +193,15 @@ function setScriptSource(requestData: Record<string, unknown>) {
 
 function editScriptLines(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
-	const startLine = requestData.startLine as number;
-	const endLine = requestData.endLine as number;
-	let newContent = requestData.newContent as string;
+	let oldString = requestData.old_string as string;
+	let newString = requestData.new_string as string;
 
-	if (!instancePath || !startLine || !endLine || !newContent) {
-		return { error: "Instance path, startLine, endLine, and newContent are required" };
+	if (!instancePath || oldString === undefined || newString === undefined) {
+		return { error: "Instance path, old_string, and new_string are required" };
 	}
 
-	newContent = normalizeEscapes(newContent);
+	oldString = normalizeEscapes(oldString);
+	newString = normalizeEscapes(newString);
 
 	const instance = getInstanceByPath(instancePath);
 	if (!instance) return { error: `Instance not found: ${instancePath}` };
@@ -209,32 +209,38 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
 	}
 
-	const recordingId = beginRecording(`Edit script lines ${startLine}-${endLine}: ${instance.Name}`);
+	const recordingId = beginRecording(`Edit script: ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
-		const [lines, hadTrailingNewline] = splitLines(readScriptSource(instance));
-		const totalLines = lines.size();
+		const source = readScriptSource(instance);
 
-		if (startLine < 1 || startLine > totalLines) error(`startLine out of range (1-${totalLines})`);
-		if (endLine < startLine || endLine > totalLines) error(`endLine out of range (${startLine}-${totalLines})`);
+		// Count occurrences to ensure uniqueness
+		let count = 0;
+		let searchPos = 1;
+		const searchLen = oldString.size();
 
-		const [newLines] = splitLines(newContent);
-		const resultLines: string[] = [];
+		while (true) {
+			const [foundStart] = string.find(source, oldString, searchPos, true);
+			if (foundStart === undefined) break;
+			count++;
+			if (count > 1) break;
+			searchPos = foundStart + searchLen;
+		}
 
-		for (let i = 0; i < startLine - 1; i++) resultLines.push(lines[i]);
-		for (const line of newLines) resultLines.push(line);
-		for (let i = endLine; i < totalLines; i++) resultLines.push(lines[i]);
+		if (count === 0) error("old_string not found in script");
+		if (count > 1) error("old_string matches multiple locations. Provide more surrounding context to make it unique");
 
-		const newSource = joinLines(resultLines, hadTrailingNewline);
+		// Perform the replacement (plain literal find + replace)
+		const escaped = escapeLuaPattern(oldString);
+		const escapedRepl = escapeLuaReplacement(newString);
+		const [newSource] = string.gsub(source, escaped, escapedRepl, 1);
+
 		ScriptEditorService.UpdateSourceAsync(instance, () => newSource);
 
 		return {
-			success: true, instancePath,
-			editedLines: { startLine, endLine },
-			linesRemoved: endLine - startLine + 1,
-			linesAdded: newLines.size(),
-			newLineCount: resultLines.size(),
-			message: "Script lines edited successfully",
+			success: true,
+			instancePath,
+			message: "Script edited successfully",
 		};
 	});
 
@@ -243,7 +249,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		return result;
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to edit script lines: ${result}` };
+	return { error: `Failed to edit script: ${result}` };
 }
 
 function insertScriptLines(requestData: Record<string, unknown>) {

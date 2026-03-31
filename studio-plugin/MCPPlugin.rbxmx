@@ -57,6 +57,17 @@ local AssetHandlers = TS.import(script, script.Parent, "handlers", "AssetHandler
 local CaptureHandlers = TS.import(script, script.Parent, "handlers", "CaptureHandlers")
 local InputHandlers = TS.import(script, script.Parent, "handlers", "InputHandlers")
 local RenderHandlers = TS.import(script, script.Parent, "handlers", "RenderHandlers")
+local instanceId = HttpService:GenerateGUID(false)
+local assignedRole
+local function detectRole()
+	if not RunService:IsRunMode() then
+		return "edit"
+	end
+	if RunService:IsServer() then
+		return "server"
+	end
+	return "client"
+end
 local routeMap = {
 	["/api/file-tree"] = QueryHandlers.getFileTree,
 	["/api/search-files"] = QueryHandlers.searchFiles,
@@ -153,7 +164,6 @@ local function getConnectionStatus(connIndex)
 	end
 	return "connecting"
 end
-local discoverPort
 local function pollForRequests(connIndex)
 	local conn = State.getConnection(connIndex)
 	if not conn or not conn.isActive then
@@ -165,7 +175,7 @@ local function pollForRequests(connIndex)
 	conn.isPolling = true
 	local success, result = pcall(function()
 		return HttpService:RequestAsync({
-			Url = `{conn.serverUrl}/poll`,
+			Url = `{conn.serverUrl}/poll?instanceId={instanceId}`,
 			Method = "GET",
 			Headers = {
 				["Content-Type"] = "application/json",
@@ -182,6 +192,7 @@ local function pollForRequests(connIndex)
 		local data = HttpService:JSONDecode(result.Body)
 		local mcpConnected = data.mcpConnected == true
 		conn.lastHttpOk = true
+		conn.lastMcpOk = mcpConnected
 		if connIndex == State.getActiveTabIndex() then
 			local el = ui
 			el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
@@ -228,18 +239,6 @@ local function pollForRequests(connIndex)
 				end
 				local elapsed = _exp - _condition_1
 				el.troubleshootLabel.Visible = elapsed > 8
-				if elapsed > 3 and elapsed % 5 < conn.pollInterval then
-					task.spawn(function()
-						local discovered = discoverPort()
-						if discovered ~= nil and discovered ~= conn.port then
-							conn.port = discovered
-							conn.serverUrl = `http://localhost:{discovered}`
-							if connIndex == State.getActiveTabIndex() then
-								UI.getElements().urlInput.Text = conn.serverUrl
-							end
-						end
-					end)
-				end
 				UI.startPulseAnimation()
 			end
 		end
@@ -261,20 +260,6 @@ local function pollForRequests(connIndex)
 		conn.consecutiveFailures += 1
 		if conn.consecutiveFailures > 1 then
 			conn.currentRetryDelay = math.min(conn.currentRetryDelay * conn.retryBackoffMultiplier, conn.maxRetryDelay)
-		end
-		if conn.consecutiveFailures == 5 or conn.consecutiveFailures % 20 == 0 then
-			task.spawn(function()
-				local discovered = discoverPort()
-				if discovered ~= nil and discovered ~= conn.port then
-					conn.port = discovered
-					conn.serverUrl = `http://localhost:{discovered}`
-					conn.consecutiveFailures = 0
-					conn.currentRetryDelay = 0.5
-					if connIndex == State.getActiveTabIndex() then
-						UI.getElements().urlInput.Text = conn.serverUrl
-					end
-				end
-			end)
 		end
 		if connIndex == State.getActiveTabIndex() then
 			local el = ui
@@ -334,35 +319,6 @@ local function pollForRequests(connIndex)
 		end
 	end
 end
-function discoverPort()
-	local firstActivePort
-	for offset = 0, 4 do
-		local port = State.BASE_PORT + offset
-		local success, result = pcall(function()
-			return HttpService:RequestAsync({
-				Url = `http://localhost:{port}/status`,
-				Method = "GET",
-				Headers = {
-					["Content-Type"] = "application/json",
-				},
-			})
-		end)
-		if success and result.Success then
-			local ok, data = pcall(function()
-				return HttpService:JSONDecode(result.Body)
-			end)
-			if ok and data.mcpServerActive then
-				if not data.pluginConnected then
-					return port
-				end
-				if firstActivePort == nil then
-					firstActivePort = port
-				end
-			end
-		end
-	end
-	return firstActivePort
-end
 local function activatePlugin(connIndex)
 	local _condition = connIndex
 	if _condition == nil then
@@ -388,18 +344,11 @@ local function activatePlugin(connIndex)
 			end
 			conn.port = _condition_1
 		end
+		UI.updateTabLabel(idx)
 		UI.updateUIState()
 	end
 	UI.updateTabDot(idx)
 	task.spawn(function()
-		local discoveredPort = discoverPort()
-		if discoveredPort ~= nil then
-			conn.port = discoveredPort
-			conn.serverUrl = `http://localhost:{discoveredPort}`
-			if idx == State.getActiveTabIndex() then
-				ui.urlInput.Text = conn.serverUrl
-			end
-		end
 		if not conn.heartbeatConnection then
 			conn.heartbeatConnection = RunService.Heartbeat:Connect(function()
 				local now = tick()
@@ -410,19 +359,30 @@ local function activatePlugin(connIndex)
 				end
 			end)
 		end
-		pcall(function()
-			HttpService:RequestAsync({
+		local readyOk, readyResult = pcall(function()
+			return HttpService:RequestAsync({
 				Url = `{conn.serverUrl}/ready`,
 				Method = "POST",
 				Headers = {
 					["Content-Type"] = "application/json",
 				},
 				Body = HttpService:JSONEncode({
+					instanceId = instanceId,
+					role = detectRole(),
 					pluginReady = true,
 					timestamp = tick(),
 				}),
 			})
 		end)
+		if readyOk and readyResult.Success then
+			local parseOk, readyData = pcall(function()
+				return HttpService:JSONDecode(readyResult.Body)
+			end)
+			local _value = parseOk and readyData.assignedRole
+			if _value ~= "" and _value then
+				assignedRole = readyData.assignedRole
+			end
+		end
 	end)
 end
 local function deactivatePlugin(connIndex)
@@ -436,6 +396,7 @@ local function deactivatePlugin(connIndex)
 		return nil
 	end
 	conn.isActive = false
+	conn.lastMcpOk = false
 	if idx == State.getActiveTabIndex() then
 		UI.updateUIState()
 	end
@@ -448,6 +409,7 @@ local function deactivatePlugin(connIndex)
 				["Content-Type"] = "application/json",
 			},
 			Body = HttpService:JSONEncode({
+				instanceId = instanceId,
 				timestamp = tick(),
 			}),
 		})
@@ -1375,33 +1337,57 @@ local CaptureService = game:GetService("CaptureService")
 local AssetService = game:GetService("AssetService")
 local MAX_TILE_SIZE = 1024
 local BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local PAD_BYTE = (string.byte("="))
+local B64 = {}
+for i = 0, 63 do
+	B64[i + 1] = (string.byte(BASE64_CHARS, i + 1))
+end
 local function encodeBase64(buf)
 	local len = buffer.len(buf)
-	local parts = {}
-	local i = 0
-	while i + 2 < len do
-		local b0 = buffer.readu8(buf, i)
-		local b1 = buffer.readu8(buf, i + 1)
-		local b2 = buffer.readu8(buf, i + 2)
-		local triplet = bit32.lshift(b0, 16) + bit32.lshift(b1, 8) + b2
-		local _arg0 = string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 6), 63) + 1, bit32.band(bit32.rshift(triplet, 6), 63) + 1) .. string.sub(BASE64_CHARS, bit32.band(triplet, 63) + 1, bit32.band(triplet, 63) + 1)
-		table.insert(parts, _arg0)
-		i += 3
+	local fullTriples = math.floor(len / 3)
+	local remaining = len - fullTriples * 3
+	local outLen = (fullTriples + (if remaining > 0 then 1 else 0)) * 4
+	local out = buffer.create(outLen)
+	local si = 0
+	local di = 0
+	do
+		local t = 0
+		local _shouldIncrement = false
+		while true do
+			if _shouldIncrement then
+				t += 1
+			else
+				_shouldIncrement = true
+			end
+			if not (t < fullTriples) then
+				break
+			end
+			local b0 = buffer.readu8(buf, si)
+			local b1 = buffer.readu8(buf, si + 1)
+			local b2 = buffer.readu8(buf, si + 2)
+			buffer.writeu8(out, di, B64[bit32.rshift(b0, 2) + 1])
+			buffer.writeu8(out, di + 1, B64[bit32.bor(bit32.lshift(bit32.band(b0, 3), 4), bit32.rshift(b1, 4)) + 1])
+			buffer.writeu8(out, di + 2, B64[bit32.bor(bit32.lshift(bit32.band(b1, 15), 2), bit32.rshift(b2, 6)) + 1])
+			buffer.writeu8(out, di + 3, B64[bit32.band(b2, 63) + 1])
+			si += 3
+			di += 4
+		end
 	end
-	local remaining = len - i
 	if remaining == 2 then
-		local b0 = buffer.readu8(buf, i)
-		local b1 = buffer.readu8(buf, i + 1)
-		local triplet = bit32.lshift(b0, 16) + bit32.lshift(b1, 8)
-		local _arg0 = string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 6), 63) + 1, bit32.band(bit32.rshift(triplet, 6), 63) + 1) .. "="
-		table.insert(parts, _arg0)
+		local b0 = buffer.readu8(buf, si)
+		local b1 = buffer.readu8(buf, si + 1)
+		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2) + 1])
+		buffer.writeu8(out, di + 1, B64[bit32.bor(bit32.lshift(bit32.band(b0, 3), 4), bit32.rshift(b1, 4)) + 1])
+		buffer.writeu8(out, di + 2, B64[bit32.lshift(bit32.band(b1, 15), 2) + 1])
+		buffer.writeu8(out, di + 3, PAD_BYTE)
 	elseif remaining == 1 then
-		local b0 = buffer.readu8(buf, i)
-		local triplet = bit32.lshift(b0, 16)
-		local _arg0 = string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) .. "=="
-		table.insert(parts, _arg0)
+		local b0 = buffer.readu8(buf, si)
+		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2) + 1])
+		buffer.writeu8(out, di + 1, B64[bit32.lshift(bit32.band(b0, 3), 4) + 1])
+		buffer.writeu8(out, di + 2, PAD_BYTE)
+		buffer.writeu8(out, di + 3, PAD_BYTE)
 	end
-	return table.concat(parts, "")
+	return buffer.tostring(out)
 end
 local function readPixelsTiled(img, w, h)
 	local BYTES_PER_PIXEL = 4
@@ -4019,7 +4005,6 @@ local _binding = Utils
 local getInstanceByPath = _binding.getInstanceByPath
 local Selection = game:GetService("Selection")
 local Workspace = game:GetService("Workspace")
-local RENDER_ORIGIN = Vector3.new(100000, 100000, 100000)
 local DEFAULT_PADDING = 1.35
 local DEFAULT_BACKDROP_COLOR = Color3.fromRGB(0, 255, 0)
 local function getCameraPreset(rawPreset)
@@ -4064,47 +4049,14 @@ local function getCameraDirection(preset)
 	end
 	return Vector3.new(-1, 0.7, 1).Unit
 end
-local function collectBaseParts(root)
-	local parts = {}
-	if root:IsA("BasePart") then
-		local _root = root
-		table.insert(parts, _root)
-	end
-	for _, desc in root:GetDescendants() do
-		if desc:IsA("BasePart") then
-			table.insert(parts, desc)
-		end
-	end
-	return parts
-end
-local function createRenderableClone(target, stage)
+local function getBoundingInfo(target)
 	if target:IsA("Model") then
-		local clone = target:Clone()
-		clone.Parent = stage
-		clone:PivotTo(CFrame.new(RENDER_ORIGIN))
-		return clone
+		return target:GetBoundingBox()
 	end
-	if target:IsA("BasePart") then
-		local wrapper = Instance.new("Model")
-		wrapper.Name = target.Name
-		wrapper.Parent = stage
-		local clone = target:Clone()
-		clone.Parent = wrapper
-		clone.Position = RENDER_ORIGIN
-		return wrapper
-	end
-	return nil
+	local part = target
+	return { part.CFrame, part.Size }
 end
-local function styleBaseParts(parts)
-	for _, part in parts do
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanTouch = false
-		part.CanQuery = false
-		part.CastShadow = false
-	end
-end
-local function createBackdrop(parent, focusPosition, cameraDirection, radius, cameraDistance, backdropColor, fieldOfView, aspectRatio)
+local function createBackdrop(focusPosition, cameraDirection, radius, cameraDistance, backdropColor, fieldOfView, aspectRatio)
 	local frustumDistance = cameraDistance + radius + 10
 	local backdropHeight = math.max(radius * 6, 2 * math.tan(math.rad(fieldOfView) / 2) * frustumDistance * 1.2)
 	local backdropWidth = math.max(radius * 6, backdropHeight * aspectRatio)
@@ -4122,7 +4074,7 @@ local function createBackdrop(parent, focusPosition, cameraDirection, radius, ca
 	local _cameraDirection = cameraDirection
 	local _arg0 = radius + 6
 	backdrop.CFrame = CFrame.lookAt(_focusPosition - (_cameraDirection * _arg0), focusPosition)
-	backdrop.Parent = parent
+	backdrop.Parent = Workspace
 	return backdrop
 end
 local function renderModelScreenshot(requestData)
@@ -4162,32 +4114,18 @@ local function renderModelScreenshot(requestData)
 	local previousCameraFocus = currentCamera.Focus
 	local previousFieldOfView = currentCamera.FieldOfView
 	local previousCameraSubject = currentCamera.CameraSubject
-	local stage
+	local backdrop
 	local ok, result = pcall(function()
-		stage = Instance.new("Model")
-		stage.Name = "_MCPRenderStage"
-		stage.Parent = Workspace
-		local renderRoot = createRenderableClone(target, stage)
-		if not renderRoot then
-			return {
-				error = "Failed to clone render target",
-			}
-		end
-		local baseParts = collectBaseParts(renderRoot)
-		if #baseParts == 0 then
-			return {
-				error = "Target does not contain any BaseParts to render",
-			}
-		end
-		styleBaseParts(baseParts)
-		local boundingBoxCFrame, boundingBoxSize = renderRoot:GetBoundingBox()
-		local focusPosition = boundingBoxCFrame.Position
-		local radius = math.max(boundingBoxSize.Magnitude / 2, 2)
+		local _binding_1 = getBoundingInfo(target)
+		local boundingCFrame = _binding_1[1]
+		local boundingSize = _binding_1[2]
+		local focusPosition = boundingCFrame.Position
+		local radius = math.max(boundingSize.Magnitude / 2, 2)
 		local fieldOfView = if currentCamera.FieldOfView > 0 then currentCamera.FieldOfView else 70
 		local aspectRatio = if currentCamera.ViewportSize.Y > 0 then currentCamera.ViewportSize.X / currentCamera.ViewportSize.Y else 16 / 9
 		local cameraDirection = getCameraDirection(cameraPreset)
 		local cameraDistance = math.max(12, (radius * padding) / math.tan(math.rad(fieldOfView) / 2))
-		createBackdrop(stage, focusPosition, cameraDirection, radius, cameraDistance, backdropColor, fieldOfView, aspectRatio)
+		backdrop = createBackdrop(focusPosition, cameraDirection, radius, cameraDistance, backdropColor, fieldOfView, aspectRatio)
 		pcall(function()
 			Selection:Set({})
 		end)
@@ -4208,20 +4146,20 @@ local function renderModelScreenshot(requestData)
 		return captureResult
 	end)
 	pcall(function()
-		currentCamera.CameraType = previousCameraType
 		currentCamera.CFrame = previousCameraCFrame
 		currentCamera.Focus = previousCameraFocus
 		currentCamera.FieldOfView = previousFieldOfView
 		if previousCameraSubject then
 			currentCamera.CameraSubject = previousCameraSubject
 		end
+		currentCamera.CameraType = previousCameraType
 	end)
 	pcall(function()
 		Selection:Set(previousSelection)
 	end)
-	if stage then
+	if backdrop then
 		pcall(function()
-			stage:Destroy()
+			backdrop:Destroy()
 		end)
 	end
 	if not ok then
@@ -5043,6 +4981,7 @@ local function cleanupStopListener()
 end
 local function startPlaytest(requestData)
 	local mode = requestData.mode
+	local numPlayers = requestData.numPlayers
 	if mode ~= "play" and mode ~= "run" then
 		return {
 			error = 'mode must be "play" or "run"',
@@ -5092,6 +5031,10 @@ local function startPlaytest(requestData)
 	if not injected then
 		warn(`[MCP] Failed to inject stop listener: {injErr}`)
 	end
+	if numPlayers ~= nil and mode == "run" then
+		local TestService = game:GetService("TestService")
+		TestService.NumberOfPlayers = math.clamp(numPlayers, 1, 8)
+	end
 	task.spawn(function()
 		local ok, result = pcall(function()
 			if mode == "play" then
@@ -5111,9 +5054,10 @@ local function startPlaytest(requestData)
 		testRunning = false
 		cleanupStopListener()
 	end)
+	local msg = if numPlayers ~= nil then `Playtest started in {mode} mode with {numPlayers} player(s)` else `Playtest started in {mode} mode`
 	return {
 		success = true,
-		message = `Playtest started in {mode} mode`,
+		message = msg,
 	}
 end
 local function stopPlaytest(_requestData)
@@ -5260,7 +5204,7 @@ return {
         <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
-local CURRENT_VERSION = "2.6.0-next.0"
+local CURRENT_VERSION = "2.6.0-next.1"
 local MAX_CONNECTIONS = 5
 local BASE_PORT = 58741
 local activeTabIndex = 0
@@ -5278,6 +5222,7 @@ local function createConnection(port)
 		maxRetryDelay = 5,
 		retryBackoffMultiplier = 1.2,
 		lastHttpOk = false,
+		lastMcpOk = false,
 		mcpWaitStartTime = nil,
 		isPolling = false,
 		heartbeatConnection = nil,
@@ -5288,12 +5233,16 @@ local function addConnection(port)
 	if #connections >= MAX_CONNECTIONS then
 		return nil
 	end
-	local lastPort = connections[#connections].port
-	local _condition = port
-	if _condition == nil then
-		_condition = lastPort + 1
+	if port == nil then
+		local maxPort = BASE_PORT - 1
+		for _, conn in connections do
+			if conn.port > maxPort then
+				maxPort = conn.port
+			end
+		end
+		port = maxPort + 1
 	end
-	local conn = createConnection(_condition)
+	local conn = createConnection(port)
 	table.insert(connections, conn)
 	return #connections - 1
 end
@@ -5558,6 +5507,15 @@ local function updateTabDot(connIndex)
 		tb.dot.BackgroundColor3 = getStatusDotColor(connIndex)
 	end
 end
+local function updateTabLabel(connIndex)
+	local conn = State.getConnection(connIndex)
+	local _tabButtons = tabButtons
+	local _connIndex = connIndex
+	local tb = _tabButtons[_connIndex]
+	if conn and tb and tb.label then
+		tb.label.Text = tostring(conn.port)
+	end
+end
 local function init(pluginRef)
 	local CURRENT_VERSION = State.CURRENT_VERSION
 	local screenGui = pluginRef:CreateDockWidgetPluginGuiAsync("MCPServerInterface", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, false, 300, 260, 260, 200))
@@ -5753,6 +5711,22 @@ local function init(pluginRef)
 	urlPadding.PaddingLeft = UDim.new(0, 8)
 	urlPadding.PaddingRight = UDim.new(0, 8)
 	urlPadding.Parent = urlInput
+	urlInput.FocusLost:Connect(function()
+		local conn = State.getActiveConnection()
+		if not conn or conn.isActive then
+			return nil
+		end
+		conn.serverUrl = urlInput.Text
+		local portStr = string.match(conn.serverUrl, ":(%d+)$")
+		if portStr ~= 0 and portStr == portStr and portStr ~= "" and portStr then
+			local _condition = tonumber(portStr)
+			if _condition == nil then
+				_condition = conn.port
+			end
+			conn.port = _condition
+		end
+		updateTabLabel(State.getActiveTabIndex())
+	end)
 	local statusRow = Instance.new("Frame")
 	statusRow.Size = UDim2.new(1, 0, 0, 14)
 	statusRow.BackgroundTransparency = 1
@@ -5915,29 +5889,7 @@ function updateUIState()
 		return nil
 	end
 	local el = elements
-	if conn.isActive then
-		el.statusLabel.Text = "Connecting..."
-		el.statusLabel.TextColor3 = C.yellow
-		el.statusIndicator.BackgroundColor3 = C.yellow
-		el.statusPulse.BackgroundColor3 = C.yellow
-		el.statusText.Text = "CONNECTING"
-		el.detailStatusLabel.Text = if conn.consecutiveFailures == 0 then "..." else "HTTP: X  MCP: X"
-		el.detailStatusLabel.TextColor3 = C.muted
-		startPulseAnimation()
-		el.step1Dot.BackgroundColor3 = C.yellow
-		el.step1Label.Text = "HTTP server (connecting...)"
-		el.step2Dot.BackgroundColor3 = C.yellow
-		el.step2Label.Text = "MCP bridge (connecting...)"
-		el.step3Dot.BackgroundColor3 = C.yellow
-		el.step3Label.Text = "Commands (connecting...)"
-		conn.mcpWaitStartTime = nil
-		el.troubleshootLabel.Visible = false
-		if not buttonHover then
-			setButtonDisconnect(el.connectButton, el.connectStroke)
-		end
-		el.urlInput.TextEditable = false
-		el.urlInput.BackgroundColor3 = C.card
-	else
+	if not conn.isActive then
 		el.statusLabel.Text = "Disconnected"
 		el.statusLabel.TextColor3 = C.muted
 		el.statusIndicator.BackgroundColor3 = C.red
@@ -5952,13 +5904,101 @@ function updateUIState()
 		el.step2Label.Text = "MCP bridge"
 		el.step3Dot.BackgroundColor3 = C.gray
 		el.step3Label.Text = "Commands"
-		conn.mcpWaitStartTime = nil
 		el.troubleshootLabel.Visible = false
 		if not buttonHover then
 			setButtonConnect(el.connectButton, el.connectStroke)
 		end
 		el.urlInput.TextEditable = true
 		el.urlInput.BackgroundColor3 = C.bg
+		return nil
+	end
+	if not buttonHover then
+		setButtonDisconnect(el.connectButton, el.connectStroke)
+	end
+	el.urlInput.TextEditable = false
+	el.urlInput.BackgroundColor3 = C.card
+	if conn.lastHttpOk and conn.lastMcpOk then
+		el.statusLabel.Text = "Connected"
+		el.statusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+		el.statusText.Text = "ONLINE"
+		el.detailStatusLabel.Text = "HTTP: OK  MCP: OK"
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+		el.step1Label.Text = "HTTP server (OK)"
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+		el.step2Label.Text = "MCP bridge (OK)"
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+		el.step3Label.Text = "Commands (OK)"
+		el.troubleshootLabel.Visible = false
+		stopPulseAnimation()
+	elseif conn.lastHttpOk and not conn.lastMcpOk then
+		el.statusLabel.Text = "Waiting for MCP server"
+		el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.statusText.Text = "WAITING"
+		el.detailStatusLabel.Text = "HTTP: OK  MCP: ..."
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+		el.step1Label.Text = "HTTP server (OK)"
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.step2Label.Text = "MCP bridge (waiting...)"
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.step3Label.Text = "Commands (waiting...)"
+		local elapsed = if conn.mcpWaitStartTime ~= nil then tick() - conn.mcpWaitStartTime else 0
+		el.troubleshootLabel.Visible = elapsed > 8
+		startPulseAnimation()
+	elseif conn.consecutiveFailures >= conn.maxFailuresBeforeError then
+		el.statusLabel.Text = "Server unavailable"
+		el.statusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+		el.statusText.Text = "ERROR"
+		el.detailStatusLabel.Text = "HTTP: X  MCP: X"
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+		el.step1Label.Text = "HTTP server (error)"
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+		el.step2Label.Text = "MCP bridge (error)"
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+		el.step3Label.Text = "Commands (error)"
+		el.troubleshootLabel.Visible = false
+		stopPulseAnimation()
+	elseif conn.consecutiveFailures > 5 then
+		local waitTime = math.ceil(conn.currentRetryDelay)
+		el.statusLabel.Text = `Retrying ({waitTime}s)`
+		el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
+		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.statusText.Text = "RETRY"
+		el.detailStatusLabel.Text = "HTTP: ...  MCP: ..."
+		el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
+		el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.step1Label.Text = "HTTP server (retrying...)"
+		el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.step2Label.Text = "MCP bridge (retrying...)"
+		el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+		el.step3Label.Text = "Commands (retrying...)"
+		el.troubleshootLabel.Visible = false
+		startPulseAnimation()
+	else
+		el.statusLabel.Text = if conn.consecutiveFailures > 1 then `Connecting (attempt {conn.consecutiveFailures})` else "Connecting..."
+		el.statusLabel.TextColor3 = C.yellow
+		el.statusIndicator.BackgroundColor3 = C.yellow
+		el.statusPulse.BackgroundColor3 = C.yellow
+		el.statusText.Text = "CONNECTING"
+		el.detailStatusLabel.Text = if conn.consecutiveFailures == 0 then "..." else "HTTP: ...  MCP: ..."
+		el.detailStatusLabel.TextColor3 = C.muted
+		el.step1Dot.BackgroundColor3 = C.yellow
+		el.step1Label.Text = "HTTP server (connecting...)"
+		el.step2Dot.BackgroundColor3 = C.yellow
+		el.step2Label.Text = "MCP bridge (connecting...)"
+		el.step3Dot.BackgroundColor3 = C.yellow
+		el.step3Label.Text = "Commands (connecting...)"
+		el.troubleshootLabel.Visible = false
+		startPulseAnimation()
 	end
 end
 return {
@@ -5966,6 +6006,7 @@ return {
 	init = init,
 	updateUIState = updateUIState,
 	updateTabDot = updateTabDot,
+	updateTabLabel = updateTabLabel,
 	stopPulseAnimation = stopPulseAnimation,
 	startPulseAnimation = startPulseAnimation,
 	getElements = function()

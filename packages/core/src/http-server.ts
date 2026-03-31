@@ -56,7 +56,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   }),
   get_script_source: (tools, body) => tools.getScriptSource(body.instancePath, body.startLine, body.endLine),
   set_script_source: (tools, body) => tools.setScriptSource(body.instancePath, body.source),
-  edit_script_lines: (tools, body) => tools.editScriptLines(body.instancePath, body.startLine, body.endLine, body.newContent),
+  edit_script_lines: (tools, body) => tools.editScriptLines(body.instancePath, body.old_string, body.new_string),
   insert_script_lines: (tools, body) => tools.insertScriptLines(body.instancePath, body.afterLine, body.newContent),
   delete_script_lines: (tools, body) => tools.deleteScriptLines(body.instancePath, body.startLine, body.endLine),
   get_attribute: (tools, body) => tools.getAttribute(body.instancePath, body.attributeName),

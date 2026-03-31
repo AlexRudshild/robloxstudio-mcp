@@ -560,7 +560,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'edit_script_lines',
     category: 'write',
-    description: 'Replace a range of lines. 1-indexed, inclusive. Use numberedSource for line numbers.',
+    description: 'Replace exact text in a script. old_string must match exactly once in the script (whitespace-sensitive). Use get_script_source first to see current content.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -568,20 +568,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'string',
           description: 'Script instance path'
         },
-        startLine: {
-          type: 'number',
-          description: 'Start line (1-indexed)'
-        },
-        endLine: {
-          type: 'number',
-          description: 'End line (inclusive)'
-        },
-        newContent: {
+        old_string: {
           type: 'string',
-          description: 'Replacement content'
+          description: 'Exact text to find and replace (must be unique in the script)'
+        },
+        new_string: {
+          type: 'string',
+          description: 'Replacement text'
         }
       },
-      required: ['instancePath', 'startLine', 'endLine', 'newContent']
+      required: ['instancePath', 'old_string', 'new_string']
     }
   },
   {

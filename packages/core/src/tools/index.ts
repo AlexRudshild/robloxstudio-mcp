@@ -488,11 +488,11 @@ export class RobloxStudioTools {
   }
 
 
-  async editScriptLines(instancePath: string, startLine: number, endLine: number, newContent: string) {
-    if (!instancePath || !startLine || !endLine || typeof newContent !== 'string') {
-      throw new Error('Instance path, startLine, endLine, and newContent are required for edit_script_lines');
+  async editScriptLines(instancePath: string, oldString: string, newString: string) {
+    if (!instancePath || typeof oldString !== 'string' || typeof newString !== 'string') {
+      throw new Error('Instance path, old_string, and new_string are required for edit_script_lines');
     }
-    const response = await this.client.request('/api/edit-script-lines', { instancePath, startLine, endLine, newContent });
+    const response = await this.client.request('/api/edit-script-lines', { instancePath, old_string: oldString, new_string: newString });
     return {
       content: [
         {

@@ -19,9 +19,9 @@ const instanceId = HttpService.GenerateGUID(false);
 let assignedRole: string | undefined;
 
 function detectRole(): string {
-	if (RunService.IsServer() && RunService.IsRunMode()) return "server";
-	if (RunService.IsClient()) return "client";
-	return "edit";
+	if (!RunService.IsRunMode()) return "edit";
+	if (RunService.IsServer()) return "server";
+	return "client";
 }
 
 type Handler = (data: Record<string, unknown>) => unknown;
