@@ -279,10 +279,7 @@ export class OpenCloudClient {
     fileName: string
   ): Promise<AssetOperationResponse> {
     const formData = new FormData();
-    formData.append(
-      'request',
-      new Blob([JSON.stringify(uploadRequest)], { type: 'application/json' })
-    );
+    formData.append('request', JSON.stringify(uploadRequest));
     formData.append(
       'fileContent',
       new Blob([fileContent as BlobPart], { type: this.getMimeType(fileName) }),
