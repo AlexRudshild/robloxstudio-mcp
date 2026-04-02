@@ -422,12 +422,17 @@ export class RobloxStudioTools {
     };
 
     const pathStr = (response.instancePath as string) || instancePath;
-    const topService = pathStr.split('.')[0];
+    const pathSegments = pathStr.split('.');
+    const topService =
+      typeof response.topService === 'string' && response.topService.length > 0
+        ? response.topService
+        : pathSegments[0] === 'game'
+          ? (pathSegments[1] ?? 'game')
+          : pathSegments[0];
     const typeNote = scriptTypeInfo[response.className as string] || (response.className as string);
     const serviceNote = serviceInfo[topService] || topService;
 
     const headerLines: string[] = [
-      `Script:   ${response.name}`,
       `Path:     ${pathStr}`,
       `Type:     ${typeNote}`,
       `Location: ${serviceNote}`,
@@ -444,10 +449,6 @@ export class RobloxStudioTools {
 
     if (response.truncated) {
       headerLines.push(`Note:     ⚠️  Truncated to first 1000 lines — use startLine/endLine to read more`);
-    }
-
-    if (Array.isArray(response.siblings) && (response.siblings as string[]).length > 0) {
-      headerLines.push(`Siblings: ${(response.siblings as string[]).join(', ')}`);
     }
 
     const header = headerLines.join('\n');

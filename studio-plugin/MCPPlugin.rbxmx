@@ -3987,18 +3987,6 @@ local function getScriptSource(requestData)
 		if instance:IsA("BaseScript") then
 			resp.enabled = instance.Enabled
 		end
-		-- Add sibling scripts for context (other scripts in the same parent folder)
-		local parent = instance.Parent
-		if parent then
-			local siblings = {}
-			for _, child in parent:GetChildren() do
-				if child ~= instance and child:IsA("LuaSourceContainer") then
-					local _arg0 = `{child.Name} ({child.ClassName})`
-					table.insert(siblings, _arg0)
-				end
-			end
-			resp.siblings = siblings
-		end
 		-- Add top-level service for context (walk up to game's direct child)
 		local topServiceInst = instance
 		while topServiceInst.Parent and topServiceInst.Parent ~= game do

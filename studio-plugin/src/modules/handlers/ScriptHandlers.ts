@@ -96,18 +96,6 @@ function getScriptSource(requestData: Record<string, unknown>) {
 			resp.enabled = instance.Enabled;
 		}
 
-		// Add sibling scripts for context (other scripts in the same parent folder)
-		const parent = instance.Parent;
-		if (parent) {
-			const siblings: string[] = [];
-			for (const child of parent.GetChildren()) {
-				if (child !== instance && child.IsA("LuaSourceContainer")) {
-					siblings.push(`${child.Name} (${child.ClassName})`);
-				}
-			}
-			resp.siblings = siblings;
-		}
-
 		// Add top-level service for context (walk up to game's direct child)
 		let topServiceInst: Instance = instance;
 		while (topServiceInst.Parent && topServiceInst.Parent !== game) {
