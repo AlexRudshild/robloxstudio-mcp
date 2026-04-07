@@ -5103,7 +5103,7 @@ return {
         <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
-local CURRENT_VERSION = "2.6.0-next.6"
+local CURRENT_VERSION = "2.6.0-next.7"
 local MAX_CONNECTIONS = 5
 local BASE_PORT = 58741
 local activeTabIndex = 0
