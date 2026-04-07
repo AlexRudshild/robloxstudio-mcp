@@ -689,6 +689,126 @@ function grepScripts(requestData: Record<string, unknown>) {
 	};
 }
 
+function getDescendants(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	if (!instancePath) return { error: "Instance path is required" };
+
+	const maxDepth = (requestData.maxDepth as number) ?? 10;
+	const classFilter = requestData.classFilter as string | undefined;
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const descendants: { name: string; className: string; path: string; depth: number }[] = [];
+
+	function collect(inst: Instance, depth: number) {
+		if (depth > maxDepth) return;
+		for (const child of inst.GetChildren()) {
+			if (classFilter && !child.IsA(classFilter as keyof Instances)) continue;
+			descendants.push({
+				name: child.Name,
+				className: child.ClassName,
+				path: getInstancePath(child),
+				depth,
+			});
+			collect(child, depth + 1);
+		}
+	}
+
+	collect(instance, 1);
+
+	return { instancePath, descendants, count: descendants.size(), maxDepth };
+}
+
+function compareInstances(requestData: Record<string, unknown>) {
+	const instancePathA = requestData.instancePathA as string;
+	const instancePathB = requestData.instancePathB as string;
+
+	if (!instancePathA || !instancePathB) {
+		return { error: "Both instancePathA and instancePathB are required" };
+	}
+
+	const instA = getInstanceByPath(instancePathA);
+	if (!instA) return { error: `Instance not found: ${instancePathA}` };
+
+	const instB = getInstanceByPath(instancePathB);
+	if (!instB) return { error: `Instance not found: ${instancePathB}` };
+
+	const commonProps = [
+		"Name", "ClassName",
+		"Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide",
+		"Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3",
+		"BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex",
+		"BorderSizePixel", "BackgroundTransparency", "ImageTransparency",
+		"TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows",
+	];
+
+	const matching: Record<string, string> = {};
+	const differing: Record<string, { a: string; b: string }> = {};
+	const onlyA: string[] = [];
+	const onlyB: string[] = [];
+
+	for (const prop of commonProps) {
+		const [okA, valA] = pcall(() => tostring((instA as unknown as Record<string, unknown>)[prop]));
+		const [okB, valB] = pcall(() => tostring((instB as unknown as Record<string, unknown>)[prop]));
+
+		if (okA && okB) {
+			if (valA === valB) {
+				matching[prop] = valA as string;
+			} else {
+				differing[prop] = { a: valA as string, b: valB as string };
+			}
+		} else if (okA) {
+			onlyA.push(prop);
+		} else if (okB) {
+			onlyB.push(prop);
+		}
+	}
+
+	return {
+		instancePathA,
+		instancePathB,
+		classNameA: instA.ClassName,
+		classNameB: instB.ClassName,
+		matching,
+		differing,
+		onlyA,
+		onlyB,
+	};
+}
+
+function getOutputLog(requestData: Record<string, unknown>) {
+	const maxEntries = (requestData.maxEntries as number) ?? 100;
+	const messageTypeFilter = requestData.messageType as string | undefined;
+
+	const [success, result] = pcall(() => {
+		const LogService = game.GetService("LogService");
+		const history = LogService.GetLogHistory();
+		const allEntries: Record<string, unknown>[] = [];
+
+		for (const entry of history) {
+			const msgType = tostring(entry.messageType);
+			if (messageTypeFilter && msgType !== messageTypeFilter) continue;
+			allEntries.push({
+				message: entry.message,
+				messageType: msgType,
+				timestamp: entry.timestamp,
+			});
+		}
+
+		const startIdx = math.max(0, allEntries.size() - maxEntries);
+		const finalEntries: Record<string, unknown>[] = [];
+		for (let i = startIdx; i < allEntries.size(); i++) {
+			finalEntries.push(allEntries[i]);
+		}
+
+		return { entries: finalEntries, count: finalEntries.size(), totalAvailable: allEntries.size() };
+	});
+
+	if (success) return result;
+	return { error: `Failed to get output log: ${result}` };
+}
+
 export = {
 	getFileTree,
 	searchFiles,
@@ -701,4 +821,7 @@ export = {
 	getClassInfo,
 	getProjectStructure,
 	grepScripts,
+	getDescendants,
+	compareInstances,
+	getOutputLog,
 };

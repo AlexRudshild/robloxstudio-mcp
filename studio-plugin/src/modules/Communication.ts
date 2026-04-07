@@ -12,7 +12,6 @@ import BuildHandlers from "./handlers/BuildHandlers";
 import AssetHandlers from "./handlers/AssetHandlers";
 import CaptureHandlers from "./handlers/CaptureHandlers";
 import InputHandlers from "./handlers/InputHandlers";
-import RenderHandlers from "./handlers/RenderHandlers";
 import { Connection, RequestPayload, PollResponse, ReadyResponse } from "../types";
 
 const instanceId = HttpService.GenerateGUID(false);
@@ -39,19 +38,22 @@ const routeMap: Record<string, Handler> = {
 	"/api/class-info": QueryHandlers.getClassInfo,
 	"/api/project-structure": QueryHandlers.getProjectStructure,
 	"/api/grep-scripts": QueryHandlers.grepScripts,
+	"/api/get-descendants": QueryHandlers.getDescendants,
+	"/api/compare-instances": QueryHandlers.compareInstances,
+	"/api/get-output-log": QueryHandlers.getOutputLog,
 
 	"/api/set-property": PropertyHandlers.setProperty,
+	"/api/set-properties": PropertyHandlers.setProperties,
 	"/api/mass-set-property": PropertyHandlers.massSetProperty,
 	"/api/mass-get-property": PropertyHandlers.massGetProperty,
-	"/api/set-calculated-property": PropertyHandlers.setCalculatedProperty,
-	"/api/set-relative-property": PropertyHandlers.setRelativeProperty,
-
 	"/api/create-object": InstanceHandlers.createObject,
+	"/api/create-ui-tree": InstanceHandlers.createUITree,
 	"/api/mass-create-objects": InstanceHandlers.massCreateObjects,
-	"/api/mass-create-objects-with-properties": InstanceHandlers.massCreateObjectsWithProperties,
 	"/api/delete-object": InstanceHandlers.deleteObject,
 	"/api/smart-duplicate": InstanceHandlers.smartDuplicate,
 	"/api/mass-duplicate": InstanceHandlers.massDuplicate,
+	"/api/clone-object": InstanceHandlers.cloneObject,
+	"/api/move-object": InstanceHandlers.moveObject,
 
 	"/api/get-script-source": ScriptHandlers.getScriptSource,
 	"/api/set-script-source": ScriptHandlers.setScriptSource,
@@ -71,6 +73,7 @@ const routeMap: Record<string, Handler> = {
 	"/api/execute-luau": MetadataHandlers.executeLuau,
 	"/api/undo": MetadataHandlers.undo,
 	"/api/redo": MetadataHandlers.redo,
+	"/api/bulk-set-attributes": MetadataHandlers.bulkSetAttributes,
 
 	"/api/start-playtest": TestHandlers.startPlaytest,
 	"/api/stop-playtest": TestHandlers.stopPlaytest,
@@ -86,12 +89,11 @@ const routeMap: Record<string, Handler> = {
 	"/api/preview-asset": AssetHandlers.previewAsset,
 
 	"/api/capture-screenshot": CaptureHandlers.captureScreenshot,
-	"/api/render-model-screenshot": RenderHandlers.renderModelScreenshot,
-
 	"/api/simulate-mouse-input": InputHandlers.simulateMouseInput,
 	"/api/simulate-keyboard-input": InputHandlers.simulateKeyboardInput,
 
 	"/api/find-and-replace-in-scripts": ScriptHandlers.findAndReplaceInScripts,
+	"/api/get-script-analysis": ScriptHandlers.getScriptAnalysis,
 };
 
 function processRequest(request: RequestPayload): unknown {

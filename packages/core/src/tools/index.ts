@@ -4,6 +4,7 @@ import { runBuildExecutor } from './build-executor.js';
 import { OpenCloudClient } from '../opencloud-client.js';
 import { rgbaToPng } from '../png-encoder.js';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 type RawImageCaptureResponse = {
@@ -24,54 +25,6 @@ function encodePngFromRgbaResponse(response: RawImageCaptureResponse): Buffer {
 
   const rgbaBuffer = Buffer.from(response.data, 'base64');
   return rgbaToPng(rgbaBuffer, response.width, response.height);
-}
-
-function ensureParentDirectory(filePath: string) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-}
-
-function writePng(filePath: string, pngBuffer: Buffer) {
-  ensureParentDirectory(filePath);
-  fs.writeFileSync(filePath, pngBuffer);
-}
-
-function sanitizeFileSegment(name: string): string {
-  const sanitized = name
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/\s+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-
-  return sanitized || 'model';
-}
-
-function ensurePngExtension(fileName: string): string {
-  return path.extname(fileName) ? fileName : `${fileName}.png`;
-}
-
-function getDefaultObjectName(instancePath: string, instanceName?: string): string {
-  return instanceName || instancePath.split('.').pop() || 'object';
-}
-
-function resolveSingleRenderSavePath(
-  instancePath: string,
-  instanceName: string | undefined,
-  options?: {
-    savePath?: string;
-    outputDir?: string;
-    fileName?: string;
-  }
-) {
-  if (options?.savePath) {
-    return options.savePath;
-  }
-
-  if (!options?.outputDir) {
-    return undefined;
-  }
-
-  const baseName = sanitizeFileSegment(options.fileName || getDefaultObjectName(instancePath, instanceName));
-  return path.join(options.outputDir, ensurePngExtension(baseName));
 }
 
 export class RobloxStudioTools {
@@ -253,6 +206,14 @@ export class RobloxStudioTools {
     };
   }
 
+  async setProperties(instancePath: string, properties: Record<string, any>) {
+    if (!instancePath || !properties) {
+      throw new Error('instancePath and properties are required for set_properties');
+    }
+    const response = await this.client.request('/api/set-properties', { instancePath, properties });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
   async massSetProperty(paths: string[], propertyName: string, propertyValue: any) {
     if (!paths || paths.length === 0 || !propertyName) {
       throw new Error('Paths array and property name are required for mass_set_property');
@@ -309,6 +270,14 @@ export class RobloxStudioTools {
         }
       ]
     };
+  }
+
+  async createUITree(parentPath: string, tree: any) {
+    if (!parentPath || !tree) {
+      throw new Error('parentPath and tree are required for create_ui_tree');
+    }
+    const response = await this.client.request('/api/create-ui-tree', { parentPath, tree });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
   async massCreateObjects(objects: Array<{className: string, parent: string, name?: string, properties?: Record<string, any>}>) {
@@ -403,58 +372,6 @@ export class RobloxStudioTools {
   }
 
 
-  async setCalculatedProperty(
-    paths: string[],
-    propertyName: string,
-    formula: string,
-    variables?: Record<string, any>
-  ) {
-    if (!paths || paths.length === 0 || !propertyName || !formula) {
-      throw new Error('Paths, property name, and formula are required for set_calculated_property');
-    }
-    const response = await this.client.request('/api/set-calculated-property', {
-      paths,
-      propertyName,
-      formula,
-      variables
-    });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
-
-
-  async setRelativeProperty(
-    paths: string[],
-    propertyName: string,
-    operation: 'add' | 'multiply' | 'divide' | 'subtract' | 'power',
-    value: any,
-    component?: 'X' | 'Y' | 'Z' | 'XScale' | 'XOffset' | 'YScale' | 'YOffset'
-  ) {
-    if (!paths || paths.length === 0 || !propertyName || !operation || value === undefined) {
-      throw new Error('Paths, property name, operation, and value are required for set_relative_property');
-    }
-    const response = await this.client.request('/api/set-relative-property', {
-      paths,
-      propertyName,
-      operation,
-      value,
-      component
-    });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
 
 
   async getScriptSource(instancePath: string, startLine?: number, endLine?: number) {
@@ -462,13 +379,62 @@ export class RobloxStudioTools {
       throw new Error('Instance path is required for get_script_source');
     }
     const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine });
+
+    if (response.error) {
+      return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+    }
+
+    const scriptTypeInfo: Record<string, string> = {
+      'Script': 'Server Script, runs on the server only',
+      'LocalScript': 'Local Script, runs on the client',
+      'ModuleScript': 'Module Script, shared library loaded via require()',
+    };
+
+    const serviceInfo: Record<string, string> = {
+      'Workspace': 'Workspace, 3D world replicated to all clients',
+      'ServerScriptService': 'ServerScriptService, server only',
+      'ServerStorage': 'ServerStorage, server only storage',
+      'StarterGui': 'StarterGui, UI templates copied to each player',
+      'StarterPlayerScripts': 'StarterPlayerScripts, client scripts',
+      'StarterCharacterScripts': 'StarterCharacterScripts, character scripts',
+      'ReplicatedStorage': 'ReplicatedStorage, shared server and client',
+      'ReplicatedFirst': 'ReplicatedFirst, first to load on client',
+    };
+
+    const pathStr = (response.instancePath as string) || instancePath;
+    const pathSegments = pathStr.split('.');
+    const topService =
+      typeof response.topService === 'string' && response.topService.length > 0
+        ? response.topService
+        : pathSegments[0] === 'game' ? (pathSegments[1] ?? 'game') : pathSegments[0];
+    const typeNote = scriptTypeInfo[response.className as string] || (response.className as string);
+    const serviceNote = serviceInfo[topService] || topService;
+
+    const headerLines: string[] = [
+      `Path:     ${pathStr}`,
+      `Type:     ${typeNote}`,
+      `Location: ${serviceNote}`,
+      `Lines:    ${response.lineCount} total${
+        response.isPartial ? ` (showing ${response.startLine}-${response.endLine})` : ''
+      }`,
+    ];
+
+    if (response.enabled === false) {
+      headerLines.push(`Status:   DISABLED`);
+    }
+
+    if (response.truncated) {
+      headerLines.push(`Note:     Truncated to first 1000 lines, use startLine/endLine to read more`);
+    }
+
+    const header = headerLines.join('\n');
+    const code = (response.numberedSource || response.source) as string;
+
     return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
+      content: [{
+        type: 'text',
+        text: `${header}\n\n${code}`,
+      }]
     };
   }
 
@@ -792,21 +758,82 @@ export class RobloxStudioTools {
   }
 
 
-  private static findLibraryPath(): string {
-    // Walk up from the script location to find the repo root (has .gitignore + package.json)
-    let dir = path.dirname(decodeURIComponent(new URL(import.meta.url).pathname).replace(/^\/([A-Z]:)/, '$1'));
-    for (let i = 0; i < 6; i++) {
-      const candidate = path.join(dir, 'build-library');
-      if (fs.existsSync(candidate)) return candidate;
-      dir = path.dirname(dir);
+  private static findProjectRoot(startDir: string): string | null {
+    let dir = path.resolve(startDir);
+    while (true) {
+      if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'))) {
+        return dir;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) return null;
+      dir = parent;
     }
-    // Fallback: create next to wherever we are
-    const fallback = path.join(dir, 'build-library');
-    fs.mkdirSync(fallback, { recursive: true });
-    return fallback;
   }
 
-  private static readonly LIBRARY_PATH = RobloxStudioTools.findLibraryPath();
+  private static isDirectory(candidate: string | null | undefined): candidate is string {
+    if (!candidate) return false;
+    try {
+      return fs.statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private static ensureWritableDirectory(candidate: string, label: string): string {
+    const resolved = path.resolve(candidate);
+    try {
+      fs.mkdirSync(resolved, { recursive: true });
+    } catch (error) {
+      throw new Error(`Unable to create ${label} build-library directory at ${resolved}: ${(error as Error).message}`);
+    }
+    if (!RobloxStudioTools.isDirectory(resolved)) {
+      throw new Error(`${label} build-library path is not a directory: ${resolved}`);
+    }
+    try {
+      fs.accessSync(resolved, fs.constants.W_OK);
+    } catch (error) {
+      throw new Error(`${label} build-library directory is not writable: ${resolved}. ${(error as Error).message}`);
+    }
+    return resolved;
+  }
+
+  private static _cachedLibraryPath: string | undefined;
+
+  private static findLibraryPath(): string {
+    if (RobloxStudioTools._cachedLibraryPath) return RobloxStudioTools._cachedLibraryPath;
+
+    const overridePath = process.env.ROBLOXSTUDIO_MCP_BUILD_LIBRARY || process.env.BUILD_LIBRARY_PATH;
+    const cwd = path.resolve(process.cwd());
+    const projectRoot = RobloxStudioTools.findProjectRoot(cwd);
+    const homeLibraryPath = path.join(os.homedir(), '.robloxstudio-mcp', 'build-library');
+    const projectLibraryPath = projectRoot ? path.join(projectRoot, 'build-library') : null;
+    const cwdLibraryPath = path.join(cwd, 'build-library');
+
+    let result: string;
+
+    if (overridePath) {
+      result = RobloxStudioTools.ensureWritableDirectory(overridePath, 'override');
+    } else {
+      const existing = [projectLibraryPath, cwdLibraryPath].find(
+        c => c && RobloxStudioTools.isDirectory(c) && (() => { try { fs.accessSync(c, fs.constants.W_OK); return true; } catch { return false; } })()
+      );
+      if (existing) {
+        result = path.resolve(existing);
+      } else if (projectLibraryPath) {
+        try {
+          result = RobloxStudioTools.ensureWritableDirectory(projectLibraryPath, 'project-root');
+        } catch (err) {
+          console.error(`Warning: could not create build-library at project root (${projectLibraryPath}): ${(err as Error).message}. Falling back to home directory.`);
+          result = RobloxStudioTools.ensureWritableDirectory(homeLibraryPath, 'home');
+        }
+      } else {
+        result = RobloxStudioTools.ensureWritableDirectory(homeLibraryPath, 'home');
+      }
+    }
+
+    RobloxStudioTools._cachedLibraryPath = result;
+    return result;
+  }
 
   async exportBuild(instancePath: string, outputId?: string, style: string = 'misc') {
     if (!instancePath) {
@@ -822,7 +849,7 @@ export class RobloxStudioTools {
     if (response && response.success && response.buildData) {
       const buildData = response.buildData;
       const buildId = buildData.id || `${style}/exported`;
-      const filePath = path.join(RobloxStudioTools.LIBRARY_PATH, `${buildId}.json`);
+      const filePath = path.join(RobloxStudioTools.findLibraryPath(), `${buildId}.json`);
       const dirPath = path.dirname(filePath);
 
       if (!fs.existsSync(dirPath)) {
@@ -842,30 +869,105 @@ export class RobloxStudioTools {
     };
   }
 
+  private normalizePalette(palette: Record<string, unknown>): Record<string, [string, string]> {
+    if (!palette || typeof palette !== 'object' || Array.isArray(palette)) {
+      throw new Error('palette must be an object mapping keys to [BrickColor, Material] tuples');
+    }
+    const normalized: Record<string, [string, string]> = {};
+    for (const [key, value] of Object.entries(palette)) {
+      if (!Array.isArray(value) || value.length < 2) {
+        throw new Error(`Palette key "${key}" must map to [BrickColor, Material]`);
+      }
+      normalized[key] = [String(value[0]), String(value[1])];
+    }
+    if (Object.keys(normalized).length === 0) {
+      throw new Error('palette must contain at least one key');
+    }
+    return normalized;
+  }
+
+  private normalizeBuildParts(parts: unknown, paletteKeys: Set<string>): any[][] {
+    if (!Array.isArray(parts) || parts.length === 0) {
+      throw new Error('parts must be a non-empty array');
+    }
+
+    const ALLOWED_SHAPES = new Set(['Block', 'Wedge', 'Cylinder', 'Ball', 'CornerWedge']);
+    const normalized: any[][] = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+
+      if (Array.isArray(part)) {
+        if (part.length < 10) {
+          throw new Error(`Part ${i} must have at least 10 elements`);
+        }
+        const [px, py, pz, sx, sy, sz, rx, ry, rz, paletteKey, ...rest] = part;
+        if (typeof paletteKey !== 'string' || !paletteKeys.has(paletteKey)) {
+          throw new Error(`Part ${i} references unknown palette key "${paletteKey}"`);
+        }
+        const tuple: any[] = [px, py, pz, sx, sy, sz, rx, ry, rz, paletteKey];
+        if (rest[0] !== undefined) {
+          if (!ALLOWED_SHAPES.has(rest[0])) throw new Error(`Part ${i} has invalid shape "${rest[0]}"`);
+          tuple.push(rest[0]);
+        }
+        if (rest[1] !== undefined) {
+          if (!rest[0]) tuple.push('Block');
+          tuple.push(rest[1]);
+        }
+        normalized.push(tuple);
+        continue;
+      }
+
+      if (!part || typeof part !== 'object') {
+        throw new Error(`Part ${i} must be an array or object`);
+      }
+
+      const r = part as Record<string, unknown>;
+      const position = r.position as number[];
+      const size = r.size as number[];
+      const rotation = r.rotation as number[];
+      const pk = r.paletteKey as string;
+
+      if (!Array.isArray(position) || position.length !== 3) throw new Error(`Part ${i}: position must be [x,y,z]`);
+      if (!Array.isArray(size) || size.length !== 3) throw new Error(`Part ${i}: size must be [x,y,z]`);
+      if (!Array.isArray(rotation) || rotation.length !== 3) throw new Error(`Part ${i}: rotation must be [x,y,z]`);
+      if (typeof pk !== 'string' || !paletteKeys.has(pk)) throw new Error(`Part ${i} references unknown palette key "${pk}"`);
+
+      const tuple: any[] = [...position, ...size, ...rotation, pk];
+      if (r.shape !== undefined) {
+        if (!ALLOWED_SHAPES.has(r.shape as string)) throw new Error(`Part ${i} has invalid shape "${r.shape}"`);
+        tuple.push(r.shape);
+      }
+      if (r.transparency !== undefined) {
+        if (!r.shape) tuple.push('Block');
+        tuple.push(r.transparency);
+      }
+      normalized.push(tuple);
+    }
+
+    return normalized;
+  }
+
   async createBuild(
     id: string,
     style: string,
-    palette: Record<string, [string, string]>,
-    parts: any[][],
+    palette: Record<string, any>,
+    parts: unknown,
     bounds?: [number, number, number]
   ) {
-    if (!id || !palette || !parts || parts.length === 0) {
-      throw new Error('id, palette, and parts are required for create_build');
+    if (!id) {
+      throw new Error('id is required for create_build');
     }
 
-    // Validate part arrays have at least 10 elements (pos3 + size3 + rot3 + paletteKey)
-    for (let i = 0; i < parts.length; i++) {
-      if (!Array.isArray(parts[i]) || parts[i].length < 10) {
-        throw new Error(`Part ${i} must have at least 10 elements: [posX, posY, posZ, sizeX, sizeY, sizeZ, rotX, rotY, rotZ, paletteKey]`);
-      }
-    }
+    const normalizedPalette = this.normalizePalette(palette);
+    const normalizedParts = this.normalizeBuildParts(parts, new Set(Object.keys(normalizedPalette)));
 
     // Auto-compute bounds if not provided
-    const computedBounds = bounds || this.computeBounds(parts);
+    const computedBounds = bounds || this.computeBounds(normalizedParts);
 
-    const buildData = { id, style, bounds: computedBounds, palette, parts };
+    const buildData = { id, style, bounds: computedBounds, palette: normalizedPalette, parts: normalizedParts };
 
-    const filePath = path.join(RobloxStudioTools.LIBRARY_PATH, `${id}.json`);
+    const filePath = path.join(RobloxStudioTools.findLibraryPath(), `${id}.json`);
     const dirPath = path.dirname(filePath);
 
     if (!fs.existsSync(dirPath)) {
@@ -882,8 +984,8 @@ export class RobloxStudioTools {
             id,
             style,
             bounds: computedBounds,
-            partCount: parts.length,
-            paletteKeys: Object.keys(palette),
+            partCount: normalizedParts.length,
+            paletteKeys: Object.keys(normalizedPalette),
             savedTo: filePath
           })
         }
@@ -939,7 +1041,7 @@ export class RobloxStudioTools {
     };
     if (seed !== undefined) buildData.generatorSeed = seed;
 
-    const filePath = path.join(RobloxStudioTools.LIBRARY_PATH, `${id}.json`);
+    const filePath = path.join(RobloxStudioTools.findLibraryPath(), `${id}.json`);
     const dirPath = path.dirname(filePath);
 
     if (!fs.existsSync(dirPath)) {
@@ -973,14 +1075,14 @@ export class RobloxStudioTools {
     // If buildData is a string, treat it as a library ID and load the file
     let resolved: Record<string, any>;
     if (typeof buildData === 'string') {
-      const filePath = path.join(RobloxStudioTools.LIBRARY_PATH, `${buildData}.json`);
+      const filePath = path.join(RobloxStudioTools.findLibraryPath(), `${buildData}.json`);
       if (!fs.existsSync(filePath)) {
         throw new Error(`Build not found in library: ${buildData}`);
       }
       resolved = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     } else if (buildData.id && !buildData.parts) {
       // Object with just an id — try loading from library
-      const filePath = path.join(RobloxStudioTools.LIBRARY_PATH, `${buildData.id}.json`);
+      const filePath = path.join(RobloxStudioTools.findLibraryPath(), `${buildData.id}.json`);
       if (!fs.existsSync(filePath)) {
         throw new Error(`Build not found in library: ${buildData.id}`);
       }
@@ -1005,7 +1107,7 @@ export class RobloxStudioTools {
   }
 
   async listLibrary(style?: string) {
-    const libraryPath = RobloxStudioTools.LIBRARY_PATH;
+    const libraryPath = RobloxStudioTools.findLibraryPath();
     const styles = style ? [style] : ['medieval', 'modern', 'nature', 'scifi', 'misc'];
     const builds: Array<{ id: string; style: string; bounds: number[]; partCount: number }> = [];
 
@@ -1060,7 +1162,7 @@ export class RobloxStudioTools {
       throw new Error('Build ID is required for get_build');
     }
 
-    const filePath = path.join(RobloxStudioTools.LIBRARY_PATH, `${id}.json`);
+    const filePath = path.join(RobloxStudioTools.findLibraryPath(), `${id}.json`);
     if (!fs.existsSync(filePath)) {
       throw new Error(`Build not found in library: ${id}`);
     }
@@ -1107,7 +1209,7 @@ export class RobloxStudioTools {
       throw new Error('sceneData is required for import_scene');
     }
 
-    const libraryPath = RobloxStudioTools.LIBRARY_PATH;
+    const libraryPath = RobloxStudioTools.findLibraryPath();
     const expandedBuilds: Array<{ buildData: Record<string, any>; position: number[]; rotation: number[]; name: string }> = [];
 
     // Resolve model references from library
@@ -1412,232 +1514,6 @@ export class RobloxStudioTools {
     };
   }
 
-  private async requestRenderObjectScreenshot(
-    instancePath: string,
-    options?: {
-      cameraPreset?: string;
-      padding?: number;
-      backdropColor?: [number, number, number];
-    }
-  ) {
-    if (!instancePath) {
-      throw new Error('instancePath is required for render_object_screenshot');
-    }
-
-    const response = await this.client.request('/api/render-model-screenshot', {
-      instancePath,
-      cameraPreset: options?.cameraPreset,
-      padding: options?.padding,
-      backdropColor: options?.backdropColor,
-    }) as RawImageCaptureResponse;
-
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
-    return response;
-  }
-
-  async renderObjectScreenshot(
-    instancePath: string,
-    options?: {
-      cameraPreset?: string;
-      padding?: number;
-      backdropColor?: [number, number, number];
-      savePath?: string;
-      outputDir?: string;
-      fileName?: string;
-      returnImage?: boolean;
-    }
-  ) {
-    const response = await this.requestRenderObjectScreenshot(instancePath, options);
-    const pngBuffer = encodePngFromRgbaResponse(response);
-    const savePath = resolveSingleRenderSavePath(
-      response.instancePath ?? instancePath,
-      response.instanceName,
-      options,
-    );
-    const returnImage = options?.returnImage ?? true;
-
-    if (savePath) {
-      writePng(savePath, pngBuffer);
-    }
-
-    const content: Array<{ type: 'image' | 'text'; data?: string; mimeType?: string; text?: string }> = [];
-
-    if (returnImage) {
-      content.push({
-        type: 'image',
-        data: pngBuffer.toString('base64'),
-        mimeType: 'image/png',
-      });
-    }
-
-    content.push({
-      type: 'text',
-      text: JSON.stringify({
-        success: true,
-        instancePath: response.instancePath ?? instancePath,
-        instanceName: response.instanceName,
-        cameraPreset: response.cameraPreset ?? options?.cameraPreset ?? 'isometric',
-        width: response.width,
-        height: response.height,
-        savedPath: savePath,
-      })
-    });
-
-    return { content };
-  }
-
-  async renderModelScreenshot(
-    instancePath: string,
-    options?: {
-      cameraPreset?: string;
-      padding?: number;
-      backdropColor?: [number, number, number];
-      savePath?: string;
-      outputDir?: string;
-      fileName?: string;
-      returnImage?: boolean;
-    }
-  ) {
-    return this.renderObjectScreenshot(instancePath, options);
-  }
-
-  private async collectRenderablePaths(parentPath: string, recursive: boolean): Promise<string[]> {
-    const response = await this.client.request('/api/instance-children', {
-      instancePath: parentPath,
-    }) as {
-      error?: string;
-      children?: Array<{ name: string; className: string; path: string; hasChildren: boolean }>;
-    };
-
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
-    const children = response.children ?? [];
-    const renderablePaths = children
-      .filter(child => child.className === 'Model' || child.className === 'Part' || child.className === 'MeshPart' || child.className === 'WedgePart' || child.className === 'CornerWedgePart' || child.className === 'TrussPart' || child.className === 'SpawnLocation' || child.className === 'Seat' || child.className === 'VehicleSeat' || child.className === 'UnionOperation')
-      .map(child => child.path);
-
-    if (!recursive) {
-      return renderablePaths;
-    }
-
-    const nestedTargets = children
-      .filter(child => child.hasChildren)
-      .map(child => child.path);
-
-    for (const nestedPath of nestedTargets) {
-      renderablePaths.push(...await this.collectRenderablePaths(nestedPath, true));
-    }
-
-    return renderablePaths;
-  }
-
-  async batchRenderObjects(
-    parentPath: string,
-    outputDir: string,
-    options?: {
-      recursive?: boolean;
-      cameraPreset?: string;
-      padding?: number;
-      backdropColor?: [number, number, number];
-    }
-  ) {
-    if (!parentPath || !outputDir) {
-      throw new Error('parentPath and outputDir are required for batch_render_objects');
-    }
-
-    const recursive = options?.recursive ?? false;
-    const renderablePaths = await this.collectRenderablePaths(parentPath, recursive);
-    const usedFilePaths = new Set<string>();
-    const results: Array<Record<string, unknown>> = [];
-
-    fs.mkdirSync(outputDir, { recursive: true });
-
-    for (const objectPath of renderablePaths) {
-      const objectName = objectPath.split('.').pop() || 'object';
-      const fileBaseName = sanitizeFileSegment(objectName);
-      let filePath = path.join(outputDir, `${fileBaseName}.png`);
-      let suffix = 1;
-
-      while (usedFilePaths.has(filePath)) {
-        filePath = path.join(outputDir, `${fileBaseName}_${suffix}.png`);
-        suffix += 1;
-      }
-
-      usedFilePaths.add(filePath);
-
-      try {
-        const response = await this.requestRenderObjectScreenshot(objectPath, options);
-        const pngBuffer = encodePngFromRgbaResponse(response);
-        writePng(filePath, pngBuffer);
-
-        results.push({
-          success: true,
-          instancePath: response.instancePath ?? objectPath,
-          instanceName: response.instanceName ?? objectName,
-          cameraPreset: response.cameraPreset ?? options?.cameraPreset ?? 'isometric',
-          width: response.width,
-          height: response.height,
-          filePath,
-        });
-      } catch (error) {
-        results.push({
-          success: false,
-          instancePath: objectPath,
-          instanceName: objectName,
-          filePath,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    const manifestPath = path.join(outputDir, 'render-manifest.json');
-    fs.writeFileSync(
-      manifestPath,
-      JSON.stringify({
-        parentPath,
-        outputDir,
-        recursive,
-        cameraPreset: options?.cameraPreset ?? 'isometric',
-        totalObjects: renderablePaths.length,
-        renderedAt: new Date().toISOString(),
-        results,
-      }, null, 2)
-    );
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          success: true,
-          parentPath,
-          outputDir,
-          recursive,
-          totalObjects: renderablePaths.length,
-          manifestPath,
-          results,
-        })
-      }]
-    };
-  }
-
-  async batchRenderModels(
-    parentPath: string,
-    outputDir: string,
-    options?: {
-      recursive?: boolean;
-      cameraPreset?: string;
-      padding?: number;
-      backdropColor?: [number, number, number];
-    }
-  ) {
-    return this.batchRenderObjects(parentPath, outputDir, options);
-  }
-
   async simulateMouseInput(action: string, x: number, y: number, button?: string, scrollDirection?: string, target?: string) {
     if (!action) {
       throw new Error('action is required for simulate_mouse_input');
@@ -1681,6 +1557,71 @@ export class RobloxStudioTools {
         text: JSON.stringify(response)
       }]
     };
+  }
+
+  async cloneObject(instancePath: string, targetParentPath: string) {
+    if (!instancePath || !targetParentPath) {
+      throw new Error('instancePath and targetParentPath are required for clone_object');
+    }
+    const response = await this.client.request('/api/clone-object', { instancePath, targetParentPath });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async moveObject(instancePath: string, targetParentPath: string) {
+    if (!instancePath || !targetParentPath) {
+      throw new Error('instancePath and targetParentPath are required for move_object');
+    }
+    const response = await this.client.request('/api/move-object', { instancePath, targetParentPath });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async renameObject(instancePath: string, newName: string) {
+    if (!instancePath || !newName) {
+      throw new Error('instancePath and newName are required for rename_object');
+    }
+    const response = await this.client.request('/api/set-property', {
+      instancePath,
+      propertyName: 'Name',
+      propertyValue: newName,
+    });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async getDescendants(instancePath: string, maxDepth?: number, classFilter?: string) {
+    if (!instancePath) {
+      throw new Error('instancePath is required for get_descendants');
+    }
+    const response = await this.client.request('/api/get-descendants', { instancePath, maxDepth, classFilter });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async compareInstances(instancePathA: string, instancePathB: string) {
+    if (!instancePathA || !instancePathB) {
+      throw new Error('instancePathA and instancePathB are required for compare_instances');
+    }
+    const response = await this.client.request('/api/compare-instances', { instancePathA, instancePathB });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async getOutputLog(maxEntries?: number, messageType?: string) {
+    const response = await this.client.request('/api/get-output-log', { maxEntries, messageType });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async getScriptAnalysis(instancePath: string) {
+    if (!instancePath) {
+      throw new Error('instancePath is required for get_script_analysis');
+    }
+    const response = await this.client.request('/api/get-script-analysis', { instancePath });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
+  async bulkSetAttributes(instancePath: string, attributes: Record<string, unknown>) {
+    if (!instancePath || !attributes) {
+      throw new Error('instancePath and attributes are required for bulk_set_attributes');
+    }
+    const response = await this.client.request('/api/bulk-set-attributes', { instancePath, attributes });
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
   async findAndReplaceInScripts(

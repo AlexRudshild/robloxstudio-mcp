@@ -8,11 +8,12 @@ const { beginRecording, finishRecording } = Recording;
 
 function normalizeEscapes(s: string): string {
 	let result = s;
+	result = result.gsub("\\\\", "\x01")[0];
 	result = result.gsub("\\n", "\n")[0];
 	result = result.gsub("\\t", "\t")[0];
 	result = result.gsub("\\r", "\r")[0];
 	result = result.gsub('\\"', '"')[0];
-	result = result.gsub("\\\\", "\\")[0];
+	result = result.gsub("\x01", "\\")[0];
 	return result;
 }
 
@@ -95,6 +96,13 @@ function getScriptSource(requestData: Record<string, unknown>) {
 		if (instance.IsA("BaseScript")) {
 			resp.enabled = instance.Enabled;
 		}
+
+		let topServiceInst: Instance = instance;
+		while (topServiceInst.Parent && topServiceInst.Parent !== game) {
+			topServiceInst = topServiceInst.Parent;
+		}
+		resp.topService = topServiceInst.Name;
+
 		return resp;
 	});
 
@@ -491,6 +499,53 @@ function findAndReplaceInScripts(requestData: Record<string, unknown>) {
 	};
 }
 
+function getScriptAnalysis(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	if (!instancePath) return { error: "Instance path is required" };
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const results: Record<string, unknown>[] = [];
+
+	function analyzeScript(scriptInstance: Instance) {
+		if (!scriptInstance.IsA("LuaSourceContainer")) return;
+		const source = readScriptSource(scriptInstance);
+		const diagnostics: Record<string, unknown>[] = [];
+
+		const [fn, compileError] = loadstring(source);
+		if (!fn && compileError) {
+			const [lineStr] = tostring(compileError).match(":(%d+):");
+			diagnostics.push({
+				line: lineStr ? tonumber(lineStr) : undefined,
+				message: tostring(compileError),
+				severity: "error",
+			});
+		}
+
+		results.push({
+			scriptPath: getInstancePath(scriptInstance),
+			scriptName: scriptInstance.Name,
+			diagnostics,
+			hasErrors: diagnostics.size() > 0,
+		});
+	}
+
+	if (instance.IsA("LuaSourceContainer")) {
+		analyzeScript(instance);
+	} else {
+		for (const desc of instance.GetDescendants()) {
+			analyzeScript(desc);
+		}
+	}
+
+	return {
+		results,
+		totalScripts: results.size(),
+		scriptsWithErrors: results.filter(r => (r as { hasErrors: boolean }).hasErrors).size(),
+	};
+}
+
 export = {
 	getScriptSource,
 	setScriptSource,
@@ -498,4 +553,5 @@ export = {
 	insertScriptLines,
 	deleteScriptLines,
 	findAndReplaceInScripts,
+	getScriptAnalysis,
 };

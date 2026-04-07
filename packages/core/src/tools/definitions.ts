@@ -253,6 +253,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['paths', 'propertyName']
     }
   },
+  {
+    name: 'set_properties',
+    category: 'write',
+    description: 'Set multiple properties on a single instance in one call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Instance path'
+        },
+        properties: {
+          type: 'object',
+          description: 'Map of property name to value'
+        }
+      },
+      required: ['instancePath', 'properties']
+    }
+  },
 
   // === Object Creation/Deletion ===
   {
@@ -280,6 +299,36 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         }
       },
       required: ['className', 'parent']
+    }
+  },
+  {
+    name: 'create_ui_tree',
+    category: 'write',
+    description: 'Create an entire instance hierarchy from a nested JSON tree in one call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parentPath: {
+          type: 'string',
+          description: 'Parent instance path'
+        },
+        tree: {
+          type: 'object',
+          description: 'Root node: { className: string, name?: string, properties?: { prop: value }, children?: [node, ...] }',
+          properties: {
+            className: { type: 'string', description: 'Roblox class name' },
+            name: { type: 'string', description: 'Instance name' },
+            properties: { type: 'object', description: 'Property name to value map' },
+            children: {
+              type: 'array',
+              description: 'Child nodes with same structure',
+              items: { type: 'object' }
+            }
+          },
+          required: ['className']
+        }
+      },
+      required: ['parentPath', 'tree']
     }
   },
   {
@@ -452,68 +501,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   // === Calculated/Relative Properties ===
-  {
-    name: 'set_calculated_property',
-    category: 'write',
-    description: 'Set properties via formula (e.g. "index * 50")',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        paths: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Instance paths'
-        },
-        propertyName: {
-          type: 'string',
-          description: 'Property name'
-        },
-        formula: {
-          type: 'string',
-          description: 'Formula expression'
-        },
-        variables: {
-          type: 'object',
-          description: 'Additional formula variables'
-        }
-      },
-      required: ['paths', 'propertyName', 'formula']
-    }
-  },
-  {
-    name: 'set_relative_property',
-    category: 'write',
-    description: 'Modify properties relative to current values',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        paths: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Instance paths'
-        },
-        propertyName: {
-          type: 'string',
-          description: 'Property name'
-        },
-        operation: {
-          type: 'string',
-          enum: ['add', 'multiply', 'divide', 'subtract', 'power'],
-          description: 'Operation'
-        },
-        value: {
-          description: 'Operand value (number or object for Vector3/UDim2 components)'
-        },
-        component: {
-          type: 'string',
-          enum: ['X', 'Y', 'Z', 'XScale', 'XOffset', 'YScale', 'YOffset'],
-          description: 'Vector3/UDim2 component'
-        }
-      },
-      required: ['paths', 'propertyName', 'operation', 'value']
-    }
-  },
-
   // === Script Read/Write ===
   {
     name: 'get_script_source',
@@ -983,12 +970,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         parts: {
           type: 'array',
-          description: 'Array of part arrays. Each: [posX, posY, posZ, sizeX, sizeY, sizeZ, rotX, rotY, rotZ, paletteKey, shape?, transparency?]. Shapes: Block (default), Wedge, Cylinder, Ball, CornerWedge.',
+          description: 'Array of parts. Object format: {position:[x,y,z], size:[x,y,z], rotation:[x,y,z], paletteKey, shape?, transparency?}. Tuple format [posX,posY,posZ,sizeX,sizeY,sizeZ,rotX,rotY,rotZ,paletteKey,shape?,transparency?] also accepted.',
           items: {
-            type: 'array',
-            items: {
-              anyOf: [{ type: 'number' }, { type: 'string' }]
-            }
+            anyOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                required: ['position', 'size', 'rotation', 'paletteKey'],
+                properties: {
+                  position: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+                  size: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+                  rotation: { type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3 },
+                  paletteKey: { type: 'string', minLength: 1 },
+                  shape: { type: 'string', enum: ['Block', 'Wedge', 'Cylinder', 'Ball', 'CornerWedge'] },
+                  transparency: { type: 'number', minimum: 0, maximum: 1 }
+                }
+              },
+              {
+                type: 'array',
+                minItems: 10,
+                items: { anyOf: [{ type: 'number' }, { type: 'string' }] }
+              }
+            ]
           }
         },
         bounds: {
@@ -1365,170 +1368,6 @@ part(0,2,0,2,1,1,"b")`,
     }
   },
   {
-    name: 'render_object_screenshot',
-    category: 'write',
-    description: 'Stage a renderable Studio object by instance path, frame it with a temporary camera, capture a screenshot, and optionally save the PNG to disk. Supports Models and BaseParts such as MeshPart.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        instancePath: {
-          type: 'string',
-          description: 'Target Studio instance path. Must resolve to a Model or BasePart such as MeshPart.'
-        },
-        cameraPreset: {
-          type: 'string',
-          enum: ['front', 'isometric', 'top', 'icon'],
-          description: 'Camera angle preset (default: isometric)'
-        },
-        padding: {
-          type: 'number',
-          description: 'Framing multiplier applied to the object bounds (default: 1.35)'
-        },
-        backdropColor: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Solid RGB backdrop color as [r, g, b] (default: [0,255,0])'
-        },
-        savePath: {
-          type: 'string',
-          description: 'Optional filesystem path where the PNG should be written'
-        },
-        outputDir: {
-          type: 'string',
-          description: 'Optional filesystem directory where the PNG should be written with an auto-generated filename'
-        },
-        fileName: {
-          type: 'string',
-          description: 'Optional file name to use when outputDir is provided (default: derived from the object name)'
-        },
-        returnImage: {
-          type: 'boolean',
-          description: 'Return the PNG image content in the MCP response (default: true)'
-        }
-      },
-      required: ['instancePath']
-    }
-  },
-  {
-    name: 'render_model_screenshot',
-    category: 'write',
-    description: 'Deprecated alias for render_object_screenshot. Stages a Model or BasePart from Studio by instance path, frames it with a temporary camera, captures a screenshot, and optionally saves the PNG to disk.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        instancePath: {
-          type: 'string',
-          description: 'Target Studio instance path. Must resolve to a Model or BasePart such as MeshPart.'
-        },
-        cameraPreset: {
-          type: 'string',
-          enum: ['front', 'isometric', 'top', 'icon'],
-          description: 'Camera angle preset (default: isometric)'
-        },
-        padding: {
-          type: 'number',
-          description: 'Framing multiplier applied to the model bounds (default: 1.35)'
-        },
-        backdropColor: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Solid RGB backdrop color as [r, g, b] (default: [0,255,0])'
-        },
-        savePath: {
-          type: 'string',
-          description: 'Optional filesystem path where the PNG should be written'
-        },
-        outputDir: {
-          type: 'string',
-          description: 'Optional filesystem directory where the PNG should be written with an auto-generated filename'
-        },
-        fileName: {
-          type: 'string',
-          description: 'Optional file name to use when outputDir is provided (default: derived from the object name)'
-        },
-        returnImage: {
-          type: 'boolean',
-          description: 'Return the PNG image content in the MCP response (default: true)'
-        }
-      },
-      required: ['instancePath']
-    }
-  },
-  {
-    name: 'batch_render_objects',
-    category: 'write',
-    description: 'Render all direct or descendant renderable objects under a Studio path and save PNGs plus a manifest to an output directory. Supports Models and BaseParts such as MeshPart.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        parentPath: {
-          type: 'string',
-          description: 'Studio path whose child or descendant Models/BaseParts should be rendered'
-        },
-        outputDir: {
-          type: 'string',
-          description: 'Filesystem directory for generated PNGs and manifest JSON'
-        },
-        recursive: {
-          type: 'boolean',
-          description: 'Recursively traverse nested folders/models (default: false)'
-        },
-        cameraPreset: {
-          type: 'string',
-          enum: ['front', 'isometric', 'top', 'icon'],
-          description: 'Camera angle preset used for each render (default: isometric)'
-        },
-        padding: {
-          type: 'number',
-          description: 'Framing multiplier applied to each object bounds (default: 1.35)'
-        },
-        backdropColor: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Solid RGB backdrop color as [r, g, b] (default: [0,255,0])'
-        }
-      },
-      required: ['parentPath', 'outputDir']
-    }
-  },
-  {
-    name: 'batch_render_models',
-    category: 'write',
-    description: 'Deprecated alias for batch_render_objects. Renders child Models/BaseParts under a Studio path and saves PNGs plus a manifest to an output directory.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        parentPath: {
-          type: 'string',
-          description: 'Studio path whose child or descendant Models/BaseParts should be rendered'
-        },
-        outputDir: {
-          type: 'string',
-          description: 'Filesystem directory for generated PNGs and manifest JSON'
-        },
-        recursive: {
-          type: 'boolean',
-          description: 'Recursively traverse nested folders/models (default: false)'
-        },
-        cameraPreset: {
-          type: 'string',
-          enum: ['front', 'isometric', 'top', 'icon'],
-          description: 'Camera angle preset used for each render (default: isometric)'
-        },
-        padding: {
-          type: 'number',
-          description: 'Framing multiplier applied to each model bounds (default: 1.35)'
-        },
-        backdropColor: {
-          type: 'array',
-          items: { type: 'number' },
-          description: 'Solid RGB backdrop color as [r, g, b] (default: [0,255,0])'
-        }
-      },
-      required: ['parentPath', 'outputDir']
-    }
-  },
-  {
     name: 'capture_screenshot',
     category: 'read',
     description: 'Capture a screenshot of the Roblox Studio viewport and return it as a PNG image. Requires EditableImage API to be enabled: Game Settings > Security > "Allow Mesh / Image APIs". Only works in Edit mode with the viewport visible.',
@@ -1636,6 +1475,165 @@ part(0,2,0,2,1,1,"b")`,
           description: 'Instance target: "edit" (default), "server", "client-1", "client-2", etc.'
         }
       }
+    }
+  },
+
+  // === Instance Operations ===
+  {
+    name: 'clone_object',
+    category: 'write',
+    description: 'Clone an instance to a new parent location. Creates a deep copy of the instance and all its descendants.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path of the instance to clone'
+        },
+        targetParentPath: {
+          type: 'string',
+          description: 'Path of the parent to place the clone under'
+        }
+      },
+      required: ['instancePath', 'targetParentPath']
+    }
+  },
+  {
+    name: 'move_object',
+    category: 'write',
+    description: 'Move (reparent) an instance to a new parent location. Preserves all children and properties.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path of the instance to move'
+        },
+        targetParentPath: {
+          type: 'string',
+          description: 'Path of the new parent'
+        }
+      },
+      required: ['instancePath', 'targetParentPath']
+    }
+  },
+  {
+    name: 'rename_object',
+    category: 'write',
+    description: 'Rename an instance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Path of the instance to rename'
+        },
+        newName: {
+          type: 'string',
+          description: 'New name for the instance'
+        }
+      },
+      required: ['instancePath', 'newName']
+    }
+  },
+
+  // === Descendants & Comparison ===
+  {
+    name: 'get_descendants',
+    category: 'read',
+    description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Root instance path'
+        },
+        maxDepth: {
+          type: 'number',
+          description: 'Maximum recursion depth (default: 10)'
+        },
+        classFilter: {
+          type: 'string',
+          description: 'Only include instances of this class (uses IsA, so "BasePart" matches Part, MeshPart, etc.)'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+  {
+    name: 'compare_instances',
+    category: 'read',
+    description: 'Diff two instances by comparing their properties. Useful for debugging why a duplicate behaves differently.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePathA: {
+          type: 'string',
+          description: 'First instance path'
+        },
+        instancePathB: {
+          type: 'string',
+          description: 'Second instance path'
+        }
+      },
+      required: ['instancePathA', 'instancePathB']
+    }
+  },
+
+  // === Output & Diagnostics ===
+  {
+    name: 'get_output_log',
+    category: 'read',
+    description: 'Get the Studio output log history. Works in both edit and play mode.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        maxEntries: {
+          type: 'number',
+          description: 'Maximum number of log entries to return (default: 100)'
+        },
+        messageType: {
+          type: 'string',
+          description: 'Filter by message type (e.g. "Enum.MessageType.MessageOutput", "Enum.MessageType.MessageWarning", "Enum.MessageType.MessageError")'
+        }
+      }
+    }
+  },
+  {
+    name: 'get_script_analysis',
+    category: 'read',
+    description: 'Run syntax analysis on Luau scripts using loadstring. Detects compile errors with line numbers. Pass a script path to analyze one script, or a container path to analyze all scripts under it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Instance path - either a script or a container whose descendant scripts will be analyzed'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+
+  // === Bulk Attributes ===
+  {
+    name: 'bulk_set_attributes',
+    category: 'write',
+    description: 'Set multiple attributes on an instance in a single call. More efficient than repeated set_attribute calls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Instance path'
+        },
+        attributes: {
+          type: 'object',
+          description: 'Map of attribute names to values. Supports Vector3, Color3, UDim2 via _type convention.'
+        }
+      },
+      required: ['instancePath', 'attributes']
     }
   },
 

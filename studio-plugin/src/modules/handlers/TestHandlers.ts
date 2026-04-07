@@ -189,18 +189,30 @@ function startPlaytest(requestData: Record<string, unknown>) {
 }
 
 function stopPlaytest(_requestData: Record<string, unknown>) {
-	if (!testRunning) {
-		return { error: "No test is currently running" };
+	if (testRunning) {
+		warn(STOP_SIGNAL);
+		return {
+			success: true,
+			output: [...outputBuffer],
+			outputCount: outputBuffer.size(),
+			message: "Playtest stop signal sent.",
+		};
 	}
 
-	warn(STOP_SIGNAL);
+	const endTest = StudioTestService as unknown as Instance & { EndTest(reason: string): void };
+	const [endOk] = pcall(() => {
+		endTest.EndTest("stopped_by_mcp");
+	});
+	if (endOk) {
+		return {
+			success: true,
+			output: [],
+			outputCount: 0,
+			message: "Playtest stopped via StudioTestService.",
+		};
+	}
 
-	return {
-		success: true,
-		output: [...outputBuffer],
-		outputCount: outputBuffer.size(),
-		message: "Playtest stop signal sent.",
-	};
+	return { error: "No MCP-started test is running and direct stop failed. The playtest may have been started manually." };
 }
 
 function getPlaytestOutput(_requestData: Record<string, unknown>) {

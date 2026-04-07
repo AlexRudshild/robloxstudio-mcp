@@ -97,6 +97,8 @@ export class RobloxStudioMCPServer {
 
           case 'set_property':
             return await this.tools.setProperty((args as any)?.instancePath as string, (args as any)?.propertyName as string, (args as any)?.propertyValue);
+          case 'set_properties':
+            return await this.tools.setProperties((args as any)?.instancePath as string, (args as any)?.properties);
 
           case 'mass_set_property':
             return await this.tools.massSetProperty((args as any)?.paths as string[], (args as any)?.propertyName as string, (args as any)?.propertyValue);
@@ -104,10 +106,10 @@ export class RobloxStudioMCPServer {
             return await this.tools.massGetProperty((args as any)?.paths as string[], (args as any)?.propertyName as string);
 
           case 'create_object':
-          case 'create_object_with_properties':
             return await this.tools.createObject((args as any)?.className as string, (args as any)?.parent as string, (args as any)?.name, (args as any)?.properties);
+          case 'create_ui_tree':
+            return await this.tools.createUITree((args as any)?.parentPath as string, (args as any)?.tree);
           case 'mass_create_objects':
-          case 'mass_create_objects_with_properties':
             return await this.tools.massCreateObjects((args as any)?.objects);
           case 'delete_object':
             return await this.tools.deleteObject((args as any)?.instancePath as string);
@@ -116,12 +118,6 @@ export class RobloxStudioMCPServer {
             return await this.tools.smartDuplicate((args as any)?.instancePath as string, (args as any)?.count as number, (args as any)?.options);
           case 'mass_duplicate':
             return await this.tools.massDuplicate((args as any)?.duplications);
-
-          case 'set_calculated_property':
-            return await this.tools.setCalculatedProperty((args as any)?.paths as string[], (args as any)?.propertyName as string, (args as any)?.formula as string, (args as any)?.variables);
-
-          case 'set_relative_property':
-            return await this.tools.setRelativeProperty((args as any)?.paths as string[], (args as any)?.propertyName as string, (args as any)?.operation, (args as any)?.value, (args as any)?.component);
 
           case 'grep_scripts':
             return await this.tools.grepScripts((args as any)?.pattern as string, {
@@ -214,40 +210,23 @@ export class RobloxStudioMCPServer {
             return await this.tools.previewAsset((args as any)?.assetId as number, (args as any)?.includeProperties, (args as any)?.maxDepth);
           case 'upload_decal':
             return await this.tools.uploadDecal((args as any)?.filePath as string, (args as any)?.displayName as string, (args as any)?.description, (args as any)?.userId, (args as any)?.groupId);
-          case 'render_object_screenshot':
-            return await this.tools.renderObjectScreenshot((args as any)?.instancePath as string, {
-              cameraPreset: (args as any)?.cameraPreset,
-              padding: (args as any)?.padding,
-              backdropColor: (args as any)?.backdropColor,
-              savePath: (args as any)?.savePath,
-              outputDir: (args as any)?.outputDir,
-              fileName: (args as any)?.fileName,
-              returnImage: (args as any)?.returnImage,
-            });
-          case 'render_model_screenshot':
-            return await this.tools.renderModelScreenshot((args as any)?.instancePath as string, {
-              cameraPreset: (args as any)?.cameraPreset,
-              padding: (args as any)?.padding,
-              backdropColor: (args as any)?.backdropColor,
-              savePath: (args as any)?.savePath,
-              outputDir: (args as any)?.outputDir,
-              fileName: (args as any)?.fileName,
-              returnImage: (args as any)?.returnImage,
-            });
-          case 'batch_render_objects':
-            return await this.tools.batchRenderObjects((args as any)?.parentPath as string, (args as any)?.outputDir as string, {
-              recursive: (args as any)?.recursive,
-              cameraPreset: (args as any)?.cameraPreset,
-              padding: (args as any)?.padding,
-              backdropColor: (args as any)?.backdropColor,
-            });
-          case 'batch_render_models':
-            return await this.tools.batchRenderModels((args as any)?.parentPath as string, (args as any)?.outputDir as string, {
-              recursive: (args as any)?.recursive,
-              cameraPreset: (args as any)?.cameraPreset,
-              padding: (args as any)?.padding,
-              backdropColor: (args as any)?.backdropColor,
-            });
+          case 'clone_object':
+            return await this.tools.cloneObject((args as any)?.instancePath as string, (args as any)?.targetParentPath as string);
+          case 'move_object':
+            return await this.tools.moveObject((args as any)?.instancePath as string, (args as any)?.targetParentPath as string);
+          case 'rename_object':
+            return await this.tools.renameObject((args as any)?.instancePath as string, (args as any)?.newName as string);
+          case 'get_descendants':
+            return await this.tools.getDescendants((args as any)?.instancePath as string, (args as any)?.maxDepth, (args as any)?.classFilter);
+          case 'compare_instances':
+            return await this.tools.compareInstances((args as any)?.instancePathA as string, (args as any)?.instancePathB as string);
+          case 'get_output_log':
+            return await this.tools.getOutputLog((args as any)?.maxEntries, (args as any)?.messageType);
+          case 'get_script_analysis':
+            return await this.tools.getScriptAnalysis((args as any)?.instancePath as string);
+          case 'bulk_set_attributes':
+            return await this.tools.bulkSetAttributes((args as any)?.instancePath as string, (args as any)?.attributes);
+
           case 'capture_screenshot':
             return await this.tools.captureScreenshot();
 

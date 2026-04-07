@@ -104,7 +104,9 @@ function createObject(requestData: Record<string, unknown>) {
 
 		for (const [propertyName, propertyValue] of pairs(properties)) {
 			pcall(() => {
-				(instance as unknown as { [key: string]: unknown })[propertyName as string] = propertyValue;
+				const converted = convertPropertyValue(instance, propertyName as string, propertyValue);
+				(instance as unknown as { [key: string]: unknown })[propertyName as string] =
+					converted !== undefined ? converted : propertyValue;
 			});
 		}
 
@@ -186,55 +188,7 @@ function massCreateObjects(requestData: Record<string, unknown>) {
 	return { results, summary: { total: (objects as defined[]).size(), succeeded: successCount, failed: failureCount } };
 }
 
-function massCreateObjectsWithProperties(requestData: Record<string, unknown>) {
-	const objects = requestData.objects as Record<string, unknown>[];
-	if (!objects || !typeIs(objects, "table") || (objects as defined[]).size() === 0) {
-		return { error: "Objects array is required" };
-	}
 
-	const recordingId = beginRecording("Mass create objects with properties");
-
-	const { results, successCount, failureCount } = processObjectEntries(objects, (objData) => {
-		const className = objData.className as string;
-		const parentPath = objData.parent as string;
-		const name = objData.name as string | undefined;
-		const propertiesRaw = objData.properties;
-		const properties = typeIs(propertiesRaw, "table")
-			? (propertiesRaw as Record<string, unknown>)
-			: ({} as Record<string, unknown>);
-
-		const parentInstance = getInstanceByPath(parentPath);
-		if (!parentInstance) {
-			return { error: "Parent instance not found", className, parentPath };
-		}
-
-		const [success, newInstance] = pcall(() => {
-			const instance = new Instance(className as keyof CreatableInstances);
-			if (name) instance.Name = name;
-			instance.Parent = parentInstance;
-
-			for (const [propName, propValue] of pairs(properties)) {
-				pcall(() => {
-					const propNameStr = tostring(propName);
-					const converted = convertPropertyValue(instance, propNameStr, propValue);
-					if (converted !== undefined) {
-						(instance as unknown as { [key: string]: unknown })[propNameStr] = converted;
-					}
-				});
-			}
-			return instance;
-		});
-
-		if (!success || !newInstance) {
-			return { error: tostring(newInstance), className, parentPath };
-		}
-
-		return { instance: newInstance as Instance, className, parentPath };
-	});
-
-	finishRecording(recordingId, successCount > 0);
-	return { results, summary: { total: (objects as defined[]).size(), succeeded: successCount, failed: failureCount } };
-}
 
 function performSmartDuplicate(requestData: Record<string, unknown>, useRecording = true) {
 	const instancePath = requestData.instancePath as string;
@@ -369,11 +323,179 @@ function massDuplicate(requestData: Record<string, unknown>) {
 	};
 }
 
+function cloneObject(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	const targetParentPath = requestData.targetParentPath as string;
+
+	if (!instancePath || !targetParentPath) {
+		return { error: "Instance path and target parent path are required" };
+	}
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const targetParent = getInstanceByPath(targetParentPath);
+	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}` };
+
+	const recordingId = beginRecording(`Clone ${instance.Name}`);
+
+	const [success, clone] = pcall(() => {
+		const cloned = instance.Clone();
+		cloned.Parent = targetParent;
+		return cloned;
+	});
+
+	if (success && clone) {
+		finishRecording(recordingId, true);
+		return {
+			success: true,
+			instancePath: getInstancePath(clone as Instance),
+			name: (clone as Instance).Name,
+			className: (clone as Instance).ClassName,
+			parent: targetParentPath,
+			message: "Object cloned successfully",
+		};
+	}
+	finishRecording(recordingId, false);
+	return { error: `Failed to clone object: ${clone}` };
+}
+
+function moveObject(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	const targetParentPath = requestData.targetParentPath as string;
+
+	if (!instancePath || !targetParentPath) {
+		return { error: "Instance path and target parent path are required" };
+	}
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+
+	const targetParent = getInstanceByPath(targetParentPath);
+	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}` };
+
+	const recordingId = beginRecording(`Move ${instance.Name}`);
+
+	const [success, result] = pcall(() => {
+		instance.Parent = targetParent;
+		return true;
+	});
+
+	if (success) {
+		finishRecording(recordingId, true);
+		return {
+			success: true,
+			instancePath: getInstancePath(instance),
+			name: instance.Name,
+			className: instance.ClassName,
+			parent: targetParentPath,
+			message: "Object moved successfully",
+		};
+	}
+	finishRecording(recordingId, false);
+	return { error: `Failed to move object: ${result}` };
+}
+
+function createUITree(requestData: Record<string, unknown>) {
+	const tree = requestData.tree as Record<string, unknown>;
+	const parentPath = requestData.parentPath as string;
+
+	if (!tree || !parentPath) {
+		return { error: "Tree object and parentPath are required" };
+	}
+
+	const parent = getInstanceByPath(parentPath);
+	if (!parent) return { error: `Parent not found: ${parentPath}` };
+
+	if (!tree.className || !typeIs(tree.className, "string")) {
+		return { error: "Tree root must have a className string" };
+	}
+
+	const MAX_DEPTH = 20;
+	const recordingId = beginRecording("Create UI tree");
+	let totalCreated = 0;
+	let totalFailed = 0;
+	const errors: string[] = [];
+
+	function createNode(nodeData: Record<string, unknown>, nodeParent: Instance, depth: number): Instance | undefined {
+		if (depth > MAX_DEPTH) {
+			totalFailed++;
+			errors.push(`Max depth (${MAX_DEPTH}) exceeded`);
+			return undefined;
+		}
+
+		const className = nodeData.className as string;
+		if (!className) {
+			totalFailed++;
+			errors.push("Node missing className");
+			return undefined;
+		}
+
+		const [success, instance] = pcall(() => {
+			const inst = new Instance(className as keyof CreatableInstances);
+			if (nodeData.name) inst.Name = nodeData.name as string;
+
+			const props = nodeData.properties as Record<string, unknown> | undefined;
+			if (props && typeIs(props, "table")) {
+				for (const [propName, propValue] of pairs(props)) {
+					pcall(() => {
+						const converted = convertPropertyValue(inst, propName as string, propValue);
+						(inst as unknown as Record<string, unknown>)[propName as string] =
+							converted !== undefined ? converted : propValue;
+					});
+				}
+			}
+
+			inst.Parent = nodeParent;
+			return inst;
+		});
+
+		if (!success || !instance) {
+			totalFailed++;
+			errors.push(`Failed to create ${className}: ${tostring(instance)}`);
+			return undefined;
+		}
+		totalCreated++;
+
+		const children = nodeData.children as Record<string, unknown>[] | undefined;
+		if (children && typeIs(children, "table")) {
+			for (const childData of children) {
+				if (typeIs(childData, "table")) {
+					createNode(childData as Record<string, unknown>, instance as Instance, depth + 1);
+				}
+			}
+		}
+
+		return instance as Instance;
+	}
+
+	const rootInstance = createNode(tree, parent, 0);
+	finishRecording(recordingId, totalCreated > 0);
+
+	if (!rootInstance) {
+		return {
+			error: `Failed to create root node (${tree.className})`,
+			totalCreated,
+			totalFailed,
+			errors,
+		};
+	}
+
+	return {
+		totalCreated,
+		totalFailed,
+		rootPath: getInstancePath(rootInstance),
+		errors: errors.size() > 0 ? errors : undefined,
+	};
+}
+
 export = {
 	createObject,
 	deleteObject,
 	massCreateObjects,
-	massCreateObjectsWithProperties,
 	smartDuplicate,
 	massDuplicate,
+	cloneObject,
+	moveObject,
+	createUITree,
 };

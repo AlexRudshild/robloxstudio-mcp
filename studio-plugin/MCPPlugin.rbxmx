@@ -56,7 +56,6 @@ local BuildHandlers = TS.import(script, script.Parent, "handlers", "BuildHandler
 local AssetHandlers = TS.import(script, script.Parent, "handlers", "AssetHandlers")
 local CaptureHandlers = TS.import(script, script.Parent, "handlers", "CaptureHandlers")
 local InputHandlers = TS.import(script, script.Parent, "handlers", "InputHandlers")
-local RenderHandlers = TS.import(script, script.Parent, "handlers", "RenderHandlers")
 local instanceId = HttpService:GenerateGUID(false)
 local assignedRole
 local function detectRole()
@@ -80,17 +79,19 @@ local routeMap = {
 	["/api/class-info"] = QueryHandlers.getClassInfo,
 	["/api/project-structure"] = QueryHandlers.getProjectStructure,
 	["/api/grep-scripts"] = QueryHandlers.grepScripts,
+	["/api/get-descendants"] = QueryHandlers.getDescendants,
+	["/api/compare-instances"] = QueryHandlers.compareInstances,
+	["/api/get-output-log"] = QueryHandlers.getOutputLog,
 	["/api/set-property"] = PropertyHandlers.setProperty,
 	["/api/mass-set-property"] = PropertyHandlers.massSetProperty,
 	["/api/mass-get-property"] = PropertyHandlers.massGetProperty,
-	["/api/set-calculated-property"] = PropertyHandlers.setCalculatedProperty,
-	["/api/set-relative-property"] = PropertyHandlers.setRelativeProperty,
 	["/api/create-object"] = InstanceHandlers.createObject,
 	["/api/mass-create-objects"] = InstanceHandlers.massCreateObjects,
-	["/api/mass-create-objects-with-properties"] = InstanceHandlers.massCreateObjectsWithProperties,
 	["/api/delete-object"] = InstanceHandlers.deleteObject,
 	["/api/smart-duplicate"] = InstanceHandlers.smartDuplicate,
 	["/api/mass-duplicate"] = InstanceHandlers.massDuplicate,
+	["/api/clone-object"] = InstanceHandlers.cloneObject,
+	["/api/move-object"] = InstanceHandlers.moveObject,
 	["/api/get-script-source"] = ScriptHandlers.getScriptSource,
 	["/api/set-script-source"] = ScriptHandlers.setScriptSource,
 	["/api/edit-script-lines"] = ScriptHandlers.editScriptLines,
@@ -108,6 +109,7 @@ local routeMap = {
 	["/api/execute-luau"] = MetadataHandlers.executeLuau,
 	["/api/undo"] = MetadataHandlers.undo,
 	["/api/redo"] = MetadataHandlers.redo,
+	["/api/bulk-set-attributes"] = MetadataHandlers.bulkSetAttributes,
 	["/api/start-playtest"] = TestHandlers.startPlaytest,
 	["/api/stop-playtest"] = TestHandlers.stopPlaytest,
 	["/api/get-playtest-output"] = TestHandlers.getPlaytestOutput,
@@ -119,10 +121,10 @@ local routeMap = {
 	["/api/insert-asset"] = AssetHandlers.insertAsset,
 	["/api/preview-asset"] = AssetHandlers.previewAsset,
 	["/api/capture-screenshot"] = CaptureHandlers.captureScreenshot,
-	["/api/render-model-screenshot"] = RenderHandlers.renderModelScreenshot,
 	["/api/simulate-mouse-input"] = InputHandlers.simulateMouseInput,
 	["/api/simulate-keyboard-input"] = InputHandlers.simulateKeyboardInput,
 	["/api/find-and-replace-in-scripts"] = ScriptHandlers.findAndReplaceInScripts,
+	["/api/get-script-analysis"] = ScriptHandlers.getScriptAnalysis,
 }
 local function processRequest(request)
 	local endpoint = request.endpoint
@@ -1772,7 +1774,8 @@ local function createObject(requestData)
 		end
 		for propertyName, propertyValue in pairs(properties) do
 			pcall(function()
-				instance[propertyName] = propertyValue
+				local converted = convertPropertyValue(instance, propertyName, propertyValue)
+				instance[propertyName] = if converted ~= nil then converted else propertyValue
 			end)
 		end
 		instance.Parent = parentInstance
@@ -1861,71 +1864,6 @@ local function massCreateObjects(requestData)
 				instance.Name = name
 			end
 			instance.Parent = parentInstance
-			return instance
-		end)
-		if not success or not newInstance then
-			return {
-				error = tostring(newInstance),
-				className = className,
-				parentPath = parentPath,
-			}
-		end
-		return {
-			instance = newInstance,
-			className = className,
-			parentPath = parentPath,
-		}
-	end)
-	local results = _binding_2.results
-	local successCount = _binding_2.successCount
-	local failureCount = _binding_2.failureCount
-	finishRecording(recordingId, successCount > 0)
-	return {
-		results = results,
-		summary = {
-			total = #objects,
-			succeeded = successCount,
-			failed = failureCount,
-		},
-	}
-end
-local function massCreateObjectsWithProperties(requestData)
-	local objects = requestData.objects
-	if not objects or not (type(objects) == "table") or #objects == 0 then
-		return {
-			error = "Objects array is required",
-		}
-	end
-	local recordingId = beginRecording("Mass create objects with properties")
-	local _binding_2 = processObjectEntries(objects, function(objData)
-		local className = objData.className
-		local parentPath = objData.parent
-		local name = objData.name
-		local propertiesRaw = objData.properties
-		local properties = if type(propertiesRaw) == "table" then propertiesRaw else ({})
-		local parentInstance = getInstanceByPath(parentPath)
-		if not parentInstance then
-			return {
-				error = "Parent instance not found",
-				className = className,
-				parentPath = parentPath,
-			}
-		end
-		local success, newInstance = pcall(function()
-			local instance = Instance.new(className)
-			if name ~= "" and name then
-				instance.Name = name
-			end
-			instance.Parent = parentInstance
-			for propName, propValue in pairs(properties) do
-				pcall(function()
-					local propNameStr = tostring(propName)
-					local converted = convertPropertyValue(instance, propNameStr, propValue)
-					if converted ~= nil then
-						instance[propNameStr] = converted
-					end
-				end)
-			end
 			return instance
 		end)
 		if not success or not newInstance then
@@ -2160,13 +2098,97 @@ local function massDuplicate(requestData)
 		},
 	}
 end
+local function cloneObject(requestData)
+	local instancePath = requestData.instancePath
+	local targetParentPath = requestData.targetParentPath
+	if not (instancePath ~= "" and instancePath) or not (targetParentPath ~= "" and targetParentPath) then
+		return {
+			error = "Instance path and target parent path are required",
+		}
+	end
+	local instance = getInstanceByPath(instancePath)
+	if not instance then
+		return {
+			error = `Instance not found: {instancePath}`,
+		}
+	end
+	local targetParent = getInstanceByPath(targetParentPath)
+	if not targetParent then
+		return {
+			error = `Target parent not found: {targetParentPath}`,
+		}
+	end
+	local recordingId = beginRecording(`Clone {instance.Name}`)
+	local success, clone = pcall(function()
+		local cloned = instance:Clone()
+		cloned.Parent = targetParent
+		return cloned
+	end)
+	if success and clone then
+		finishRecording(recordingId, true)
+		return {
+			success = true,
+			instancePath = getInstancePath(clone),
+			name = clone.Name,
+			className = clone.ClassName,
+			parent = targetParentPath,
+			message = "Object cloned successfully",
+		}
+	end
+	finishRecording(recordingId, false)
+	return {
+		error = `Failed to clone object: {clone}`,
+	}
+end
+local function moveObject(requestData)
+	local instancePath = requestData.instancePath
+	local targetParentPath = requestData.targetParentPath
+	if not (instancePath ~= "" and instancePath) or not (targetParentPath ~= "" and targetParentPath) then
+		return {
+			error = "Instance path and target parent path are required",
+		}
+	end
+	local instance = getInstanceByPath(instancePath)
+	if not instance then
+		return {
+			error = `Instance not found: {instancePath}`,
+		}
+	end
+	local targetParent = getInstanceByPath(targetParentPath)
+	if not targetParent then
+		return {
+			error = `Target parent not found: {targetParentPath}`,
+		}
+	end
+	local recordingId = beginRecording(`Move {instance.Name}`)
+	local success, result = pcall(function()
+		instance.Parent = targetParent
+		return true
+	end)
+	if success then
+		finishRecording(recordingId, true)
+		return {
+			success = true,
+			instancePath = getInstancePath(instance),
+			name = instance.Name,
+			className = instance.ClassName,
+			parent = targetParentPath,
+			message = "Object moved successfully",
+		}
+	end
+	finishRecording(recordingId, false)
+	return {
+		error = `Failed to move object: {result}`,
+	}
+end
 return {
 	createObject = createObject,
 	deleteObject = deleteObject,
 	massCreateObjects = massCreateObjects,
-	massCreateObjectsWithProperties = massCreateObjectsWithProperties,
 	smartDuplicate = smartDuplicate,
 	massDuplicate = massDuplicate,
+	cloneObject = cloneObject,
+	moveObject = moveObject,
 }
 ]]></string>
           </Properties>
@@ -2716,6 +2738,58 @@ local function redo(_requestData)
 		error = `Failed to redo: {result}`,
 	}
 end
+local function bulkSetAttributes(requestData)
+	local instancePath = requestData.instancePath
+	local attributes = requestData.attributes
+	if not (instancePath ~= "" and instancePath) or not attributes then
+		return {
+			error = "Instance path and attributes are required",
+		}
+	end
+	local instance = getInstanceByPath(instancePath)
+	if not instance then
+		return {
+			error = `Instance not found: {instancePath}`,
+		}
+	end
+	local recordingId = beginRecording(`Bulk set attributes on {instance.Name}`)
+	local results = {}
+	local successCount = 0
+	local failureCount = 0
+	for name, rawValue in pairs(attributes) do
+		local attrName = name
+		local ok, err = pcall(function()
+			local value = deserializeValue(rawValue)
+			instance:SetAttribute(attrName, value)
+		end)
+		if ok then
+			successCount += 1
+			local _arg0 = {
+				attributeName = attrName,
+				success = true,
+			}
+			table.insert(results, _arg0)
+		else
+			failureCount += 1
+			local _arg0 = {
+				attributeName = attrName,
+				success = false,
+				error = tostring(err),
+			}
+			table.insert(results, _arg0)
+		end
+	end
+	finishRecording(recordingId, successCount > 0)
+	return {
+		instancePath = instancePath,
+		results = results,
+		summary = {
+			total = successCount + failureCount,
+			succeeded = successCount,
+			failed = failureCount,
+		},
+	}
+end
 return {
 	getAttribute = getAttribute,
 	setAttribute = setAttribute,
@@ -2729,6 +2803,7 @@ return {
 	executeLuau = executeLuau,
 	undo = undo,
 	redo = redo,
+	bulkSetAttributes = bulkSetAttributes,
 }
 ]]></string>
           </Properties>
@@ -2743,7 +2818,6 @@ local Recording = TS.import(script, script.Parent.Parent, "Recording")
 local _binding = Utils
 local getInstanceByPath = _binding.getInstanceByPath
 local convertPropertyValue = _binding.convertPropertyValue
-local evaluateFormula = _binding.evaluateFormula
 local _binding_1 = Recording
 local beginRecording = _binding_1.beginRecording
 local finishRecording = _binding_1.finishRecording
@@ -2910,228 +2984,10 @@ local function massGetProperty(requestData)
 		propertyName = propertyName,
 	}
 end
-local function setCalculatedProperty(requestData)
-	local paths = requestData.paths
-	local propertyName = requestData.propertyName
-	local formula = requestData.formula
-	local variables = requestData.variables
-	if not paths or not (type(paths) == "table") or #paths == 0 or not (propertyName ~= "" and propertyName) or not (formula ~= "" and formula) then
-		return {
-			error = "Paths, property name, and formula are required",
-		}
-	end
-	local results = {}
-	local successCount = 0
-	local failureCount = 0
-	local recordingId = beginRecording(`Set calculated {propertyName} property`)
-	for i = 0, #paths - 1 do
-		local path = paths[i + 1]
-		local instance = getInstanceByPath(path)
-		if instance then
-			local value, evalError = evaluateFormula(formula, variables, instance, i + 1)
-			if value ~= nil and not (evalError ~= "" and evalError) then
-				local success, err = pcall(function()
-					instance[propertyName] = value
-				end)
-				if success then
-					successCount += 1
-					local _arg0 = {
-						path = path,
-						success = true,
-						propertyName = propertyName,
-						calculatedValue = value,
-						formula = formula,
-					}
-					table.insert(results, _arg0)
-				else
-					failureCount += 1
-					local _arg0 = {
-						path = path,
-						success = false,
-						error = `Property set failed: {err}`,
-					}
-					table.insert(results, _arg0)
-				end
-			else
-				failureCount += 1
-				local _object = {
-					path = path,
-					success = false,
-				}
-				local _left = "error"
-				local _condition = evalError
-				if _condition == nil then
-					_condition = "Formula evaluation failed"
-				end
-				_object[_left] = _condition
-				table.insert(results, _object)
-			end
-		else
-			failureCount += 1
-			local _arg0 = {
-				path = path,
-				success = false,
-				error = "Instance not found",
-			}
-			table.insert(results, _arg0)
-		end
-	end
-	finishRecording(recordingId, successCount > 0)
-	return {
-		results = results,
-		summary = {
-			total = #paths,
-			succeeded = successCount,
-			failed = failureCount,
-		},
-		formula = formula,
-	}
-end
-local function setRelativeProperty(requestData)
-	local paths = requestData.paths
-	local propertyName = requestData.propertyName
-	local operation = requestData.operation
-	local value = requestData.value
-	local component = requestData.component
-	if not paths or not (type(paths) == "table") or #paths == 0 or not (propertyName ~= "" and propertyName) or not (operation ~= "" and operation) or value == nil then
-		return {
-			error = "Paths, property name, operation, and value are required",
-		}
-	end
-	local results = {}
-	local successCount = 0
-	local failureCount = 0
-	local recordingId = beginRecording(`Set relative {propertyName} property`)
-	local function applyOp(current, op, val)
-		if op == "add" then
-			return current + val
-		end
-		if op == "subtract" then
-			return current - val
-		end
-		if op == "multiply" then
-			return current * val
-		end
-		if op == "divide" then
-			return current / val
-		end
-		if op == "power" then
-			return current ^ val
-		end
-		return current
-	end
-	for _, path in paths do
-		local instance = getInstanceByPath(path)
-		if instance then
-			local success, err = pcall(function()
-				local currentValue = instance[propertyName]
-				local newValue
-				local _condition = component
-				if _condition ~= "" and _condition then
-					_condition = typeof(currentValue) == "Vector3"
-				end
-				if _condition ~= "" and _condition then
-					local cv = currentValue
-					local x = cv.X
-					local y = cv.Y
-					local z = cv.Z
-					if component == "X" then
-						x = applyOp(x, operation, value)
-					elseif component == "Y" then
-						y = applyOp(y, operation, value)
-					elseif component == "Z" then
-						z = applyOp(z, operation, value)
-					end
-					newValue = Vector3.new(x, y, z)
-				elseif typeof(currentValue) == "Color3" and typeof(value) == "Color3" then
-					local cv = currentValue
-					local v = value
-					if operation == "add" then
-						newValue = Color3.new(math.min(1, cv.R + v.R), math.min(1, cv.G + v.G), math.min(1, cv.B + v.B))
-					elseif operation == "subtract" then
-						newValue = Color3.new(math.max(0, cv.R - v.R), math.max(0, cv.G - v.G), math.max(0, cv.B - v.B))
-					elseif operation == "multiply" then
-						newValue = Color3.new(cv.R * v.R, cv.G * v.G, cv.B * v.B)
-					end
-				elseif type(currentValue) == "number" and type(value) == "number" then
-					newValue = applyOp(currentValue, operation, value)
-				elseif typeof(currentValue) == "Vector3" and type(value) == "number" then
-					local cv = currentValue
-					newValue = Vector3.new(applyOp(cv.X, operation, value), applyOp(cv.Y, operation, value), applyOp(cv.Z, operation, value))
-				else
-					local _value = typeof(currentValue) == "UDim2" and type(value) == "number" and component
-					if _value ~= "" and _value then
-						local cv = currentValue
-						local xs = cv.X.Scale
-						local xo = cv.X.Offset
-						local ys = cv.Y.Scale
-						local yo = cv.Y.Offset
-						if component == "XScale" then
-							xs = applyOp(xs, operation, value)
-						elseif component == "XOffset" then
-							xo = applyOp(xo, operation, value)
-						elseif component == "YScale" then
-							ys = applyOp(ys, operation, value)
-						elseif component == "YOffset" then
-							yo = applyOp(yo, operation, value)
-						end
-						newValue = UDim2.new(xs, xo, ys, yo)
-					else
-						error("Unsupported property type or operation")
-					end
-				end
-				instance[propertyName] = newValue
-				return newValue
-			end)
-			if success then
-				successCount += 1
-				local _arg0 = {
-					path = path,
-					success = true,
-					propertyName = propertyName,
-					operation = operation,
-					value = value,
-					component = component,
-					newValue = err,
-				}
-				table.insert(results, _arg0)
-			else
-				failureCount += 1
-				local _arg0 = {
-					path = path,
-					success = false,
-					error = tostring(err),
-				}
-				table.insert(results, _arg0)
-			end
-		else
-			failureCount += 1
-			local _arg0 = {
-				path = path,
-				success = false,
-				error = "Instance not found",
-			}
-			table.insert(results, _arg0)
-		end
-	end
-	finishRecording(recordingId, successCount > 0)
-	return {
-		results = results,
-		summary = {
-			total = #paths,
-			succeeded = successCount,
-			failed = failureCount,
-		},
-		operation = operation,
-		value = value,
-	}
-end
 return {
 	setProperty = setProperty,
 	massSetProperty = massSetProperty,
 	massGetProperty = massGetProperty,
-	setCalculatedProperty = setCalculatedProperty,
-	setRelativeProperty = setRelativeProperty,
 }
 ]]></string>
           </Properties>
@@ -3978,6 +3834,172 @@ local function grepScripts(requestData)
 		},
 	}
 end
+local function getDescendants(requestData)
+	local instancePath = requestData.instancePath
+	if not (instancePath ~= "" and instancePath) then
+		return {
+			error = "Instance path is required",
+		}
+	end
+	local _condition = (requestData.maxDepth)
+	if _condition == nil then
+		_condition = 10
+	end
+	local maxDepth = _condition
+	local classFilter = requestData.classFilter
+	local instance = getInstanceByPath(instancePath)
+	if not instance then
+		return {
+			error = `Instance not found: {instancePath}`,
+		}
+	end
+	local descendants = {}
+	local function collect(inst, depth)
+		if depth > maxDepth then
+			return nil
+		end
+		for _, child in inst:GetChildren() do
+			local _condition_1 = classFilter
+			if _condition_1 ~= "" and _condition_1 then
+				_condition_1 = not child:IsA(classFilter)
+			end
+			if _condition_1 ~= "" and _condition_1 then
+				continue
+			end
+			local _arg0 = {
+				name = child.Name,
+				className = child.ClassName,
+				path = getInstancePath(child),
+				depth = depth,
+			}
+			table.insert(descendants, _arg0)
+			collect(child, depth + 1)
+		end
+	end
+	collect(instance, 1)
+	return {
+		instancePath = instancePath,
+		descendants = descendants,
+		count = #descendants,
+		maxDepth = maxDepth,
+	}
+end
+local function compareInstances(requestData)
+	local instancePathA = requestData.instancePathA
+	local instancePathB = requestData.instancePathB
+	if not (instancePathA ~= "" and instancePathA) or not (instancePathB ~= "" and instancePathB) then
+		return {
+			error = "Both instancePathA and instancePathB are required",
+		}
+	end
+	local instA = getInstanceByPath(instancePathA)
+	if not instA then
+		return {
+			error = `Instance not found: {instancePathA}`,
+		}
+	end
+	local instB = getInstanceByPath(instancePathB)
+	if not instB then
+		return {
+			error = `Instance not found: {instancePathB}`,
+		}
+	end
+	local commonProps = { "Name", "ClassName", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
+	local matching = {}
+	local differing = {}
+	local onlyA = {}
+	local onlyB = {}
+	for _, prop in commonProps do
+		local okA, valA = pcall(function()
+			return tostring(instA[prop])
+		end)
+		local okB, valB = pcall(function()
+			return tostring(instB[prop])
+		end)
+		if okA and okB then
+			if valA == valB then
+				matching[prop] = valA
+			else
+				differing[prop] = {
+					a = valA,
+					b = valB,
+				}
+			end
+		elseif okA then
+			table.insert(onlyA, prop)
+		elseif okB then
+			table.insert(onlyB, prop)
+		end
+	end
+	return {
+		instancePathA = instancePathA,
+		instancePathB = instancePathB,
+		classNameA = instA.ClassName,
+		classNameB = instB.ClassName,
+		matching = matching,
+		differing = differing,
+		onlyA = onlyA,
+		onlyB = onlyB,
+	}
+end
+local function getOutputLog(requestData)
+	local _condition = (requestData.maxEntries)
+	if _condition == nil then
+		_condition = 100
+	end
+	local maxEntries = _condition
+	local messageTypeFilter = requestData.messageType
+	local success, result = pcall(function()
+		local LogService = game:GetService("LogService")
+		local history = LogService:GetLogHistory()
+		local allEntries = {}
+		for _, entry in history do
+			local msgType = tostring(entry.messageType)
+			local _condition_1 = messageTypeFilter
+			if _condition_1 ~= "" and _condition_1 then
+				_condition_1 = msgType ~= messageTypeFilter
+			end
+			if _condition_1 ~= "" and _condition_1 then
+				continue
+			end
+			local _arg0 = {
+				message = entry.message,
+				messageType = msgType,
+				timestamp = entry.timestamp,
+			}
+			table.insert(allEntries, _arg0)
+		end
+		local startIdx = math.max(0, #allEntries - maxEntries)
+		local finalEntries = {}
+		do
+			local i = startIdx
+			local _shouldIncrement = false
+			while true do
+				if _shouldIncrement then
+					i += 1
+				else
+					_shouldIncrement = true
+				end
+				if not (i < #allEntries) then
+					break
+				end
+				local _arg0 = allEntries[i + 1]
+				table.insert(finalEntries, _arg0)
+			end
+		end
+		return {
+			entries = finalEntries,
+			count = #finalEntries,
+			totalAvailable = #allEntries,
+		}
+	end)
+	if success then
+		return result
+	end
+	return {
+		error = `Failed to get output log: {result}`,
+	}
+end
 return {
 	getFileTree = getFileTree,
 	searchFiles = searchFiles,
@@ -3990,192 +4012,14 @@ return {
 	getClassInfo = getClassInfo,
 	getProjectStructure = getProjectStructure,
 	grepScripts = grepScripts,
+	getDescendants = getDescendants,
+	compareInstances = compareInstances,
+	getOutputLog = getOutputLog,
 }
 ]]></string>
           </Properties>
         </Item>
         <Item class="ModuleScript" referent="12">
-          <Properties>
-            <string name="Name">RenderHandlers</string>
-            <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
-local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
-local Utils = TS.import(script, script.Parent.Parent, "Utils")
-local CaptureHandlers = TS.import(script, script.Parent, "CaptureHandlers")
-local _binding = Utils
-local getInstanceByPath = _binding.getInstanceByPath
-local Selection = game:GetService("Selection")
-local Workspace = game:GetService("Workspace")
-local DEFAULT_PADDING = 1.35
-local DEFAULT_BACKDROP_COLOR = Color3.fromRGB(0, 255, 0)
-local function getCameraPreset(rawPreset)
-	local preset = if type(rawPreset) == "string" then string.lower(rawPreset) else "isometric"
-	if preset == "front" or preset == "top" or preset == "icon" then
-		return preset
-	end
-	return "isometric"
-end
-local function getBackdropColor(rawColor)
-	local _rawColor = rawColor
-	if not (type(_rawColor) == "table") then
-		return DEFAULT_BACKDROP_COLOR
-	end
-	local values = rawColor
-	local _condition = (values[1])
-	if _condition == nil then
-		_condition = 0
-	end
-	local r = math.clamp(_condition, 0, 255)
-	local _condition_1 = (values[2])
-	if _condition_1 == nil then
-		_condition_1 = 255
-	end
-	local g = math.clamp(_condition_1, 0, 255)
-	local _condition_2 = (values[3])
-	if _condition_2 == nil then
-		_condition_2 = 0
-	end
-	local b = math.clamp(_condition_2, 0, 255)
-	return Color3.fromRGB(r, g, b)
-end
-local function getCameraDirection(preset)
-	if preset == "front" then
-		return Vector3.new(0, 0, 1)
-	end
-	if preset == "top" then
-		return Vector3.new(0.05, 1, 0.05).Unit
-	end
-	if preset == "icon" then
-		return Vector3.new(-0.7, 0.35, 1).Unit
-	end
-	return Vector3.new(-1, 0.7, 1).Unit
-end
-local function getBoundingInfo(target)
-	if target:IsA("Model") then
-		return target:GetBoundingBox()
-	end
-	local part = target
-	return { part.CFrame, part.Size }
-end
-local function createBackdrop(focusPosition, cameraDirection, radius, cameraDistance, backdropColor, fieldOfView, aspectRatio)
-	local frustumDistance = cameraDistance + radius + 10
-	local backdropHeight = math.max(radius * 6, 2 * math.tan(math.rad(fieldOfView) / 2) * frustumDistance * 1.2)
-	local backdropWidth = math.max(radius * 6, backdropHeight * aspectRatio)
-	local backdrop = Instance.new("Part")
-	backdrop.Name = "_MCPRenderBackdrop"
-	backdrop.Anchored = true
-	backdrop.CanCollide = false
-	backdrop.CanTouch = false
-	backdrop.CanQuery = false
-	backdrop.CastShadow = false
-	backdrop.Material = Enum.Material.SmoothPlastic
-	backdrop.Color = backdropColor
-	backdrop.Size = Vector3.new(backdropWidth, backdropHeight, 1)
-	local _focusPosition = focusPosition
-	local _cameraDirection = cameraDirection
-	local _arg0 = radius + 6
-	backdrop.CFrame = CFrame.lookAt(_focusPosition - (_cameraDirection * _arg0), focusPosition)
-	backdrop.Parent = Workspace
-	return backdrop
-end
-local function renderModelScreenshot(requestData)
-	local instancePath = requestData.instancePath
-	if not (instancePath ~= "" and instancePath) then
-		return {
-			error = "instancePath is required",
-		}
-	end
-	local target = getInstanceByPath(instancePath)
-	if not target then
-		return {
-			error = `Instance not found: {instancePath}`,
-		}
-	end
-	if not target:IsA("Model") and not target:IsA("BasePart") then
-		return {
-			error = "Target instance must be a Model or BasePart",
-		}
-	end
-	local currentCamera = Workspace.CurrentCamera
-	if not currentCamera then
-		return {
-			error = "Workspace.CurrentCamera is not available",
-		}
-	end
-	local cameraPreset = getCameraPreset(requestData.cameraPreset)
-	local _condition = (requestData.padding)
-	if _condition == nil then
-		_condition = DEFAULT_PADDING
-	end
-	local padding = math.max(_condition, 1)
-	local backdropColor = getBackdropColor(requestData.backdropColor)
-	local previousSelection = Selection:Get()
-	local previousCameraType = currentCamera.CameraType
-	local previousCameraCFrame = currentCamera.CFrame
-	local previousCameraFocus = currentCamera.Focus
-	local previousFieldOfView = currentCamera.FieldOfView
-	local previousCameraSubject = currentCamera.CameraSubject
-	local backdrop
-	local ok, result = pcall(function()
-		local _binding_1 = getBoundingInfo(target)
-		local boundingCFrame = _binding_1[1]
-		local boundingSize = _binding_1[2]
-		local focusPosition = boundingCFrame.Position
-		local radius = math.max(boundingSize.Magnitude / 2, 2)
-		local fieldOfView = if currentCamera.FieldOfView > 0 then currentCamera.FieldOfView else 70
-		local aspectRatio = if currentCamera.ViewportSize.Y > 0 then currentCamera.ViewportSize.X / currentCamera.ViewportSize.Y else 16 / 9
-		local cameraDirection = getCameraDirection(cameraPreset)
-		local cameraDistance = math.max(12, (radius * padding) / math.tan(math.rad(fieldOfView) / 2))
-		backdrop = createBackdrop(focusPosition, cameraDirection, radius, cameraDistance, backdropColor, fieldOfView, aspectRatio)
-		pcall(function()
-			Selection:Set({})
-		end)
-		currentCamera.CameraType = Enum.CameraType.Scriptable
-		currentCamera.FieldOfView = fieldOfView
-		local _arg0 = cameraDirection * cameraDistance
-		currentCamera.CFrame = CFrame.lookAt(focusPosition + _arg0, focusPosition)
-		currentCamera.Focus = CFrame.new(focusPosition)
-		task.wait()
-		task.wait(0.15)
-		local captureResult = CaptureHandlers.captureScreenshotData()
-		if captureResult.error ~= nil then
-			return captureResult
-		end
-		captureResult.instancePath = instancePath
-		captureResult.instanceName = target.Name
-		captureResult.cameraPreset = cameraPreset
-		return captureResult
-	end)
-	pcall(function()
-		currentCamera.CFrame = previousCameraCFrame
-		currentCamera.Focus = previousCameraFocus
-		currentCamera.FieldOfView = previousFieldOfView
-		if previousCameraSubject then
-			currentCamera.CameraSubject = previousCameraSubject
-		end
-		currentCamera.CameraType = previousCameraType
-	end)
-	pcall(function()
-		Selection:Set(previousSelection)
-	end)
-	if backdrop then
-		pcall(function()
-			backdrop:Destroy()
-		end)
-	end
-	if not ok then
-		return {
-			error = `Failed to render model screenshot: {tostring(result)}`,
-		}
-	end
-	return result
-end
-return {
-	renderModelScreenshot = renderModelScreenshot,
-}
-]]></string>
-          </Properties>
-        </Item>
-        <Item class="ModuleScript" referent="13">
           <Properties>
             <string name="Name">ScriptHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -4194,11 +4038,12 @@ local beginRecording = _binding_1.beginRecording
 local finishRecording = _binding_1.finishRecording
 local function normalizeEscapes(s)
 	local result = s
+	result = (string.gsub(result, "\\\\", "\x01"))
 	result = (string.gsub(result, "\\n", "\n"))
 	result = (string.gsub(result, "\\t", "\t"))
 	result = (string.gsub(result, "\\r", "\r"))
 	result = (string.gsub(result, '\\"', '"'))
-	result = (string.gsub(result, "\\\\", "\\"))
+	result = (string.gsub(result, "\x01", "\\"))
 	return result
 end
 local function getScriptSource(requestData)
@@ -4830,6 +4675,73 @@ local function findAndReplaceInScripts(requestData)
 		truncated = hitLimit,
 	}
 end
+local function getScriptAnalysis(requestData)
+	local instancePath = requestData.instancePath
+	if not (instancePath ~= "" and instancePath) then
+		return {
+			error = "Instance path is required",
+		}
+	end
+	local instance = getInstanceByPath(instancePath)
+	if not instance then
+		return {
+			error = `Instance not found: {instancePath}`,
+		}
+	end
+	local results = {}
+	local function analyzeScript(scriptInstance)
+		if not scriptInstance:IsA("LuaSourceContainer") then
+			return nil
+		end
+		local source = readScriptSource(scriptInstance)
+		local diagnostics = {}
+		local fn, compileError = loadstring(source)
+		local _value = not fn and compileError
+		if _value ~= "" and _value then
+			local lineStr = string.match(tostring(compileError), ":(%d+):")
+			local _arg0 = {
+				line = if lineStr ~= 0 and lineStr == lineStr and lineStr ~= "" and lineStr then tonumber(lineStr) else nil,
+				message = tostring(compileError),
+				severity = "error",
+			}
+			table.insert(diagnostics, _arg0)
+		end
+		local _arg0 = {
+			scriptPath = getInstancePath(scriptInstance),
+			scriptName = scriptInstance.Name,
+			diagnostics = diagnostics,
+			hasErrors = #diagnostics > 0,
+		}
+		table.insert(results, _arg0)
+	end
+	if instance:IsA("LuaSourceContainer") then
+		analyzeScript(instance)
+	else
+		for _, desc in instance:GetDescendants() do
+			analyzeScript(desc)
+		end
+	end
+	local _object = {
+		results = results,
+		totalScripts = #results,
+	}
+	local _left = "scriptsWithErrors"
+	-- ▼ ReadonlyArray.filter ▼
+	local _newValue = {}
+	local _callback = function(r)
+		return r.hasErrors
+	end
+	local _length = 0
+	for _k, _v in results do
+		if _callback(_v, _k - 1, results) == true then
+			_length += 1
+			_newValue[_length] = _v
+		end
+	end
+	-- ▲ ReadonlyArray.filter ▲
+	_object[_left] = #_newValue
+	return _object
+end
 return {
 	getScriptSource = getScriptSource,
 	setScriptSource = setScriptSource,
@@ -4837,11 +4749,12 @@ return {
 	insertScriptLines = insertScriptLines,
 	deleteScriptLines = deleteScriptLines,
 	findAndReplaceInScripts = findAndReplaceInScripts,
+	getScriptAnalysis = getScriptAnalysis,
 }
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="14">
+        <Item class="ModuleScript" referent="13">
           <Properties>
             <string name="Name">TestHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5035,23 +4948,35 @@ local function startPlaytest(requestData)
 	}
 end
 local function stopPlaytest(_requestData)
-	if not testRunning then
+	if testRunning then
+		warn(STOP_SIGNAL)
+		local _object = {
+			success = true,
+		}
+		local _left = "output"
+		local _array = {}
+		local _length = #_array
+		table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
+		_object[_left] = _array
+		_object.outputCount = #outputBuffer
+		_object.message = "Playtest stop signal sent."
+		return _object
+	end
+	local endTest = StudioTestService
+	local endOk = pcall(function()
+		endTest:EndTest("stopped_by_mcp")
+	end)
+	if endOk then
 		return {
-			error = "No test is currently running",
+			success = true,
+			output = {},
+			outputCount = 0,
+			message = "Playtest stopped via StudioTestService.",
 		}
 	end
-	warn(STOP_SIGNAL)
-	local _object = {
-		success = true,
+	return {
+		error = "No MCP-started test is running and direct stop failed. The playtest may have been started manually.",
 	}
-	local _left = "output"
-	local _array = {}
-	local _length = #_array
-	table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
-	_object[_left] = _array
-	_object.outputCount = #outputBuffer
-	_object.message = "Playtest stop signal sent."
-	return _object
 end
 local function getPlaytestOutput(_requestData)
 	local _object = {
@@ -5144,7 +5069,7 @@ return {
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="14">
         <Properties>
           <string name="Name">Recording</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5174,11 +5099,11 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
-local CURRENT_VERSION = "2.6.0-next.5"
+local CURRENT_VERSION = "2.6.0-next.6"
 local MAX_CONNECTIONS = 5
 local BASE_PORT = 58741
 local activeTabIndex = 0
@@ -5270,7 +5195,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">UI</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5990,7 +5915,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">Utils</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6520,11 +6445,11 @@ return {
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="22">
+    <Item class="Folder" referent="21">
       <Properties>
         <string name="Name">include</string>
       </Properties>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">Promise</string>
           <string name="Source"><![CDATA[--[[
@@ -8598,7 +8523,7 @@ return Promise
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">RuntimeLib</string>
           <string name="Source"><![CDATA[local Promise = require(script.Parent.Promise)
@@ -8865,15 +8790,15 @@ return TS
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="23">
+    <Item class="Folder" referent="22">
       <Properties>
         <string name="Name">node_modules</string>
       </Properties>
-      <Item class="Folder" referent="24">
+      <Item class="Folder" referent="23">
         <Properties>
           <string name="Name">@rbxts</string>
         </Properties>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">services</string>
           <string name="Source"><![CDATA[return setmetatable({}, {
