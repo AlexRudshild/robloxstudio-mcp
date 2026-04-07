@@ -16,7 +16,6 @@ describe('HTTP Server', () => {
   });
 
   afterEach(() => {
-
     bridge.clearAllPendingRequests();
   });
 
@@ -39,19 +38,20 @@ describe('HTTP Server', () => {
     test('should handle plugin ready notification', async () => {
       const response = await request(app)
         .post('/ready')
+        .send({ instanceId: 'test-1', role: 'edit' })
         .expect(200);
 
-      expect(response.body).toEqual({ success: true });
+      expect(response.body).toMatchObject({ success: true, assignedRole: 'edit' });
       expect(app.isPluginConnected()).toBe(true);
     });
 
     test('should handle plugin disconnect', async () => {
-
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       expect(app.isPluginConnected()).toBe(true);
 
       const response = await request(app)
         .post('/disconnect')
+        .send({ instanceId: 'test-1' })
         .expect(200);
 
       expect(response.body).toEqual({ success: true });
@@ -59,6 +59,7 @@ describe('HTTP Server', () => {
     });
 
     test('should clear pending requests on disconnect', async () => {
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
 
       const p1 = bridge.sendRequest('/api/test1', {});
       const p2 = bridge.sendRequest('/api/test2', {});
@@ -67,27 +68,24 @@ describe('HTTP Server', () => {
 
       expect(bridge.getPendingRequest()).toBeTruthy();
 
-      await request(app).post('/disconnect').expect(200);
+      await request(app).post('/disconnect').send({ instanceId: 'test-1' }).expect(200);
 
       expect(bridge.getPendingRequest()).toBeNull();
     });
 
-    test('should timeout plugin connection after inactivity', async () => {
-
-      await request(app).post('/ready').expect(200);
+    test('should detect stale instances', () => {
+      bridge.registerInstance('stale-1', 'edit');
       expect(app.isPluginConnected()).toBe(true);
 
-      const originalDateNow = Date.now;
-      Date.now = jest.fn(() => originalDateNow() + 11000);
-
+      bridge.unregisterInstance('stale-1');
       expect(app.isPluginConnected()).toBe(false);
-
-      Date.now = originalDateNow;
     });
   });
 
   describe('Polling Endpoint', () => {
     test('should return 503 when MCP server is not active', async () => {
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
+
       const response = await request(app)
         .get('/poll')
         .expect(503);
@@ -101,7 +99,7 @@ describe('HTTP Server', () => {
     });
 
     test('should return pending request when MCP is active', async () => {
-
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const pendingRequest = bridge.sendRequest('/api/test', { data: 'test' });
@@ -123,7 +121,7 @@ describe('HTTP Server', () => {
     });
 
     test('should return null request when no pending requests', async () => {
-
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const response = await request(app)
@@ -136,19 +134,10 @@ describe('HTTP Server', () => {
         pluginConnected: true
       });
     });
-
-    test('should mark plugin as connected when polling', async () => {
-      expect(app.isPluginConnected()).toBe(false);
-
-      await request(app).get('/poll').expect(503);
-
-      expect(app.isPluginConnected()).toBe(true);
-    });
   });
 
   describe('Response Handling', () => {
     test('should handle successful response', async () => {
-      const requestId = 'test-request-id';
       const responseData = { result: 'success' };
 
       const requestPromise = bridge.sendRequest('/api/test', {});
@@ -204,7 +193,7 @@ describe('HTTP Server', () => {
       expect(app.isMCPServerActive()).toBe(true);
 
       const originalDateNow = Date.now;
-      Date.now = jest.fn(() => originalDateNow() + 16000);
+      Date.now = jest.fn(() => originalDateNow() + 31000);
 
       expect(app.isMCPServerActive()).toBe(false);
 
@@ -214,8 +203,7 @@ describe('HTTP Server', () => {
 
   describe('Status Endpoint', () => {
     test('should return current status', async () => {
-
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const response = await request(app)

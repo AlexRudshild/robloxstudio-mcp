@@ -44,14 +44,17 @@ describe('Smoke Tests - Connection Fixes', () => {
     const tools = new RobloxStudioTools(bridge);
     const app = createHttpServer(tools, bridge);
 
+    await request(app).post('/ready').send({ instanceId: 'test', role: 'edit' }).expect(200);
+
     const pendingPromise = bridge.sendRequest('/test', { data: 'test' });
     pendingPromise.catch(() => {});
 
     await request(app)
       .post('/disconnect')
+      .send({ instanceId: 'test' })
       .expect(200);
 
-    await expect(pendingPromise).rejects.toThrow('Connection closed');
+    await expect(pendingPromise).rejects.toThrow('disconnected');
   });
 
   test('Connection states should update correctly', async () => {
@@ -61,10 +64,10 @@ describe('Smoke Tests - Connection Fixes', () => {
 
     expect(app.isPluginConnected()).toBe(false);
 
-    await request(app).post('/ready').expect(200);
+    await request(app).post('/ready').send({ instanceId: 'test', role: 'edit' }).expect(200);
     expect(app.isPluginConnected()).toBe(true);
 
-    await request(app).post('/disconnect').expect(200);
+    await request(app).post('/disconnect').send({ instanceId: 'test' }).expect(200);
     expect(app.isPluginConnected()).toBe(false);
   });
 });

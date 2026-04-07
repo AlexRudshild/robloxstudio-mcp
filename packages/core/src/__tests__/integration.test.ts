@@ -16,18 +16,16 @@ describe('Integration Tests', () => {
   });
 
   afterEach(() => {
-
     bridge.clearAllPendingRequests();
   });
 
   describe('Full Connection Flow', () => {
     test('should handle complete connection lifecycle', async () => {
-
       let status = await request(app).get('/status').expect(200);
       expect(status.body.pluginConnected).toBe(false);
       expect(status.body.mcpServerActive).toBe(false);
 
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
 
       status = await request(app).get('/status').expect(200);
       expect(status.body.pluginConnected).toBe(true);
@@ -53,7 +51,7 @@ describe('Integration Tests', () => {
         pluginConnected: true
       });
 
-      await request(app).post('/disconnect').expect(200);
+      await request(app).post('/disconnect').send({ instanceId: 'test-1' }).expect(200);
 
       status = await request(app).get('/status').expect(200);
       expect(status.body.pluginConnected).toBe(false);
@@ -63,8 +61,7 @@ describe('Integration Tests', () => {
 
   describe('Request/Response Flow', () => {
     test('should handle complete request/response cycle', async () => {
-
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const mcpRequestPromise = bridge.sendRequest('/api/test-endpoint', {
@@ -103,8 +100,7 @@ describe('Integration Tests', () => {
     });
 
     test('should handle error responses', async () => {
-
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const mcpRequestPromise = bridge.sendRequest('/api/failing-endpoint', {});
@@ -127,8 +123,7 @@ describe('Integration Tests', () => {
 
   describe('Disconnect Recovery', () => {
     test('should handle disconnect and reconnect gracefully', async () => {
-
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const request1 = bridge.sendRequest('/api/test1', {});
@@ -139,12 +134,12 @@ describe('Integration Tests', () => {
       let poll = await request(app).get('/poll').expect(200);
       expect(poll.body.request).toBeTruthy();
 
-      await request(app).post('/disconnect').expect(200);
+      await request(app).post('/disconnect').send({ instanceId: 'test-1' }).expect(200);
 
-      await expect(request1).rejects.toThrow('Connection closed');
-      await expect(request2).rejects.toThrow('Connection closed');
+      await expect(request1).rejects.toThrow('disconnected');
+      await expect(request2).rejects.toThrow('disconnected');
 
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-2', role: 'edit' }).expect(200);
 
       const newRequestPromise = bridge.sendRequest('/api/test3', {});
 
@@ -166,12 +161,11 @@ describe('Integration Tests', () => {
 
   describe('Connection State Display', () => {
     test('should show correct pending states during connection', async () => {
-
       let health = await request(app).get('/health').expect(200);
       expect(health.body.pluginConnected).toBe(false);
       expect(health.body.mcpServerActive).toBe(false);
 
-      await request(app).get('/poll').expect(503);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
 
       health = await request(app).get('/health').expect(200);
       expect(health.body.pluginConnected).toBe(true);
@@ -189,7 +183,7 @@ describe('Integration Tests', () => {
     test('should handle request timeouts', async () => {
       jest.useFakeTimers();
 
-      await request(app).post('/ready').expect(200);
+      await request(app).post('/ready').send({ instanceId: 'test-1', role: 'edit' }).expect(200);
       app.setMCPServerActive(true);
 
       const timeoutPromise = bridge.sendRequest('/api/slow-endpoint', {});

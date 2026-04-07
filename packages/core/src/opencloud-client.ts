@@ -282,7 +282,7 @@ export class OpenCloudClient {
     formData.append('request', JSON.stringify(uploadRequest));
     formData.append(
       'fileContent',
-      new Blob([fileContent as BlobPart], { type: this.getMimeType(fileName) }),
+      new Blob([new Uint8Array(fileContent)], { type: this.getMimeType(fileName) }),
       fileName
     );
 
