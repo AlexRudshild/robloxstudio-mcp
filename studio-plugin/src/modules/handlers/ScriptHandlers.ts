@@ -56,20 +56,11 @@ function getScriptSource(requestData: Record<string, unknown>) {
 			returnedEndLine = actualEndLine;
 		}
 
-		const numberedLines: string[] = [];
-		const linesToNumber = startLine !== undefined ? splitLines(sourceToReturn)[0] : lines;
-		const lineOffset = returnedStartLine - 1;
-		for (let i = 0; i < linesToNumber.size(); i++) {
-			numberedLines.push(`${i + 1 + lineOffset}: ${linesToNumber[i]}`);
-		}
-		const numberedSource = numberedLines.join("\n");
-
 		const resp: Record<string, unknown> = {
 			instancePath,
 			className: instance.ClassName,
 			name: instance.Name,
 			source: sourceToReturn,
-			numberedSource,
 			sourceLength: fullSource.size(),
 			lineCount: totalLineCount,
 			startLine: returnedStartLine,
@@ -80,14 +71,11 @@ function getScriptSource(requestData: Record<string, unknown>) {
 
 		if (startLine === undefined && endLine === undefined && fullSource.size() > 50000) {
 			const truncatedLines: string[] = [];
-			const truncatedNumberedLines: string[] = [];
 			const maxLines = math.min(1000, lines.size());
 			for (let i = 0; i < maxLines; i++) {
 				truncatedLines.push(lines[i]);
-				truncatedNumberedLines.push(`${i + 1}: ${lines[i]}`);
 			}
 			resp.source = truncatedLines.join("\n");
-			resp.numberedSource = truncatedNumberedLines.join("\n");
 			resp.truncated = true;
 			resp.endLine = maxLines;
 			resp.note = "Script truncated to first 1000 lines. Use startLine/endLine parameters to read specific sections.";
@@ -248,7 +236,6 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		return {
 			success: true,
 			instancePath,
-			message: "Script edited successfully",
 		};
 	});
 
@@ -298,7 +285,6 @@ function insertScriptLines(requestData: Record<string, unknown>) {
 			insertedAfterLine: afterLine,
 			linesInserted: newLines.size(),
 			newLineCount: resultLines.size(),
-			message: "Script lines inserted successfully",
 		};
 	});
 
@@ -346,7 +332,6 @@ function deleteScriptLines(requestData: Record<string, unknown>) {
 			deletedLines: { startLine, endLine },
 			linesDeleted: endLine - startLine + 1,
 			newLineCount: resultLines.size(),
-			message: "Script lines deleted successfully",
 		};
 	});
 

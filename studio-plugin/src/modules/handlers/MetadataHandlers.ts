@@ -99,7 +99,7 @@ function setAttribute(requestData: Record<string, unknown>) {
 
 		return {
 			success: true, instancePath, attributeName,
-			value: attributeValue, message: "Attribute set successfully",
+			value: attributeValue,
 		};
 	});
 
@@ -321,14 +321,12 @@ function executeLuau(requestData: Record<string, unknown>) {
 			success: true,
 			returnValue: result !== undefined ? tostring(result) : undefined,
 			output,
-			message: "Code executed successfully",
 		};
 	} else {
 		return {
 			success: false,
 			error: tostring(result),
 			output,
-			message: "Code execution failed",
 		};
 	}
 }
@@ -336,10 +334,7 @@ function executeLuau(requestData: Record<string, unknown>) {
 function undo(_requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		ChangeHistoryService.Undo();
-		return {
-			success: true,
-			message: "Undo executed successfully",
-		};
+		return { success: true };
 	});
 
 	if (success) return result;
@@ -349,10 +344,7 @@ function undo(_requestData: Record<string, unknown>) {
 function redo(_requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		ChangeHistoryService.Redo();
-		return {
-			success: true,
-			message: "Redo executed successfully",
-		};
+		return { success: true };
 	});
 
 	if (success) return result;

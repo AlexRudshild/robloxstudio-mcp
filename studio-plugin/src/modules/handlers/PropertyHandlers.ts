@@ -52,7 +52,6 @@ function setProperty(requestData: Record<string, unknown>) {
 			instancePath,
 			propertyName,
 			propertyValue,
-			message: "Property set successfully",
 		};
 	} else {
 		finishRecording(recordingId, false);

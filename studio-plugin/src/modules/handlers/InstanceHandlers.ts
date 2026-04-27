@@ -122,7 +122,6 @@ function createObject(requestData: Record<string, unknown>) {
 			parent: parentPath,
 			instancePath: getInstancePath(newInstance as Instance),
 			name: (newInstance as Instance).Name,
-			message: "Object created successfully",
 		};
 	} else {
 		finishRecording(recordingId, false);
@@ -146,7 +145,7 @@ function deleteObject(requestData: Record<string, unknown>) {
 
 	if (success) {
 		finishRecording(recordingId, true);
-		return { success: true, instancePath, message: "Object deleted successfully" };
+		return { success: true, instancePath };
 	} else {
 		finishRecording(recordingId, false);
 		return { error: `Failed to delete object: ${result}`, instancePath };
@@ -353,7 +352,6 @@ function cloneObject(requestData: Record<string, unknown>) {
 			name: (clone as Instance).Name,
 			className: (clone as Instance).ClassName,
 			parent: targetParentPath,
-			message: "Object cloned successfully",
 		};
 	}
 	finishRecording(recordingId, false);
@@ -389,7 +387,6 @@ function moveObject(requestData: Record<string, unknown>) {
 			name: instance.Name,
 			className: instance.ClassName,
 			parent: targetParentPath,
-			message: "Object moved successfully",
 		};
 	}
 	finishRecording(recordingId, false);

@@ -431,7 +431,15 @@ export class RobloxStudioTools {
     }
 
     const header = headerLines.join('\n');
-    const code = (response.numberedSource || response.source) as string;
+    let code: string;
+    if (typeof response.numberedSource === 'string') {
+      code = response.numberedSource;
+    } else {
+      const sourceText = (response.source as string) ?? '';
+      const offset = (response.startLine as number) ?? 1;
+      const sourceLines = sourceText.split('\n');
+      code = sourceLines.map((line, i) => `${i + offset}: ${line}`).join('\n');
+    }
 
     return {
       content: [{
@@ -521,6 +529,7 @@ export class RobloxStudioTools {
     }
     const response = await this.client.request('/api/grep-scripts', {
       pattern,
+      maxResults: 30,
       ...options
     });
     return {

@@ -55,18 +55,6 @@ local TestHandlers = TS.import(script, script.Parent, "handlers", "TestHandlers"
 local BuildHandlers = TS.import(script, script.Parent, "handlers", "BuildHandlers")
 local AssetHandlers = TS.import(script, script.Parent, "handlers", "AssetHandlers")
 local CaptureHandlers = TS.import(script, script.Parent, "handlers", "CaptureHandlers")
-local InputHandlers = TS.import(script, script.Parent, "handlers", "InputHandlers")
-local instanceId = HttpService:GenerateGUID(false)
-local assignedRole
-local function detectRole()
-	if not RunService:IsRunMode() then
-		return "edit"
-	end
-	if RunService:IsServer() then
-		return "server"
-	end
-	return "client"
-end
 local routeMap = {
 	["/api/file-tree"] = QueryHandlers.getFileTree,
 	["/api/search-files"] = QueryHandlers.searchFiles,
@@ -79,24 +67,25 @@ local routeMap = {
 	["/api/class-info"] = QueryHandlers.getClassInfo,
 	["/api/project-structure"] = QueryHandlers.getProjectStructure,
 	["/api/grep-scripts"] = QueryHandlers.grepScripts,
-	["/api/get-descendants"] = QueryHandlers.getDescendants,
-	["/api/compare-instances"] = QueryHandlers.compareInstances,
-	["/api/get-output-log"] = QueryHandlers.getOutputLog,
 	["/api/set-property"] = PropertyHandlers.setProperty,
 	["/api/mass-set-property"] = PropertyHandlers.massSetProperty,
 	["/api/mass-get-property"] = PropertyHandlers.massGetProperty,
+	["/api/set-calculated-property"] = PropertyHandlers.setCalculatedProperty,
+	["/api/set-relative-property"] = PropertyHandlers.setRelativeProperty,
 	["/api/create-object"] = InstanceHandlers.createObject,
 	["/api/mass-create-objects"] = InstanceHandlers.massCreateObjects,
+	["/api/mass-create-objects-with-properties"] = InstanceHandlers.massCreateObjectsWithProperties,
 	["/api/delete-object"] = InstanceHandlers.deleteObject,
 	["/api/smart-duplicate"] = InstanceHandlers.smartDuplicate,
 	["/api/mass-duplicate"] = InstanceHandlers.massDuplicate,
-	["/api/clone-object"] = InstanceHandlers.cloneObject,
-	["/api/move-object"] = InstanceHandlers.moveObject,
 	["/api/get-script-source"] = ScriptHandlers.getScriptSource,
 	["/api/set-script-source"] = ScriptHandlers.setScriptSource,
 	["/api/edit-script-lines"] = ScriptHandlers.editScriptLines,
 	["/api/insert-script-lines"] = ScriptHandlers.insertScriptLines,
 	["/api/delete-script-lines"] = ScriptHandlers.deleteScriptLines,
+	["/api/create-script"] = ScriptHandlers.createScript,
+	["/api/get-all-scripts"] = ScriptHandlers.getAllScripts,
+	["/api/patch-script"] = ScriptHandlers.patchScript,
 	["/api/get-attribute"] = MetadataHandlers.getAttribute,
 	["/api/set-attribute"] = MetadataHandlers.setAttribute,
 	["/api/get-attributes"] = MetadataHandlers.getAttributes,
@@ -109,11 +98,9 @@ local routeMap = {
 	["/api/execute-luau"] = MetadataHandlers.executeLuau,
 	["/api/undo"] = MetadataHandlers.undo,
 	["/api/redo"] = MetadataHandlers.redo,
-	["/api/bulk-set-attributes"] = MetadataHandlers.bulkSetAttributes,
 	["/api/start-playtest"] = TestHandlers.startPlaytest,
 	["/api/stop-playtest"] = TestHandlers.stopPlaytest,
 	["/api/get-playtest-output"] = TestHandlers.getPlaytestOutput,
-	["/api/character-navigation"] = TestHandlers.characterNavigation,
 	["/api/export-build"] = BuildHandlers.exportBuild,
 	["/api/import-build"] = BuildHandlers.importBuild,
 	["/api/import-scene"] = BuildHandlers.importScene,
@@ -121,10 +108,6 @@ local routeMap = {
 	["/api/insert-asset"] = AssetHandlers.insertAsset,
 	["/api/preview-asset"] = AssetHandlers.previewAsset,
 	["/api/capture-screenshot"] = CaptureHandlers.captureScreenshot,
-	["/api/simulate-mouse-input"] = InputHandlers.simulateMouseInput,
-	["/api/simulate-keyboard-input"] = InputHandlers.simulateKeyboardInput,
-	["/api/find-and-replace-in-scripts"] = ScriptHandlers.findAndReplaceInScripts,
-	["/api/get-script-analysis"] = ScriptHandlers.getScriptAnalysis,
 }
 local function processRequest(request)
 	local endpoint = request.endpoint
@@ -166,6 +149,7 @@ local function getConnectionStatus(connIndex)
 	end
 	return "connecting"
 end
+local discoverPort
 local function pollForRequests(connIndex)
 	local conn = State.getConnection(connIndex)
 	if not conn or not conn.isActive then
@@ -177,7 +161,7 @@ local function pollForRequests(connIndex)
 	conn.isPolling = true
 	local success, result = pcall(function()
 		return HttpService:RequestAsync({
-			Url = `{conn.serverUrl}/poll?instanceId={instanceId}`,
+			Url = `{conn.serverUrl}/poll`,
 			Method = "GET",
 			Headers = {
 				["Content-Type"] = "application/json",
@@ -194,7 +178,6 @@ local function pollForRequests(connIndex)
 		local data = HttpService:JSONDecode(result.Body)
 		local mcpConnected = data.mcpConnected == true
 		conn.lastHttpOk = true
-		conn.lastMcpOk = mcpConnected
 		if connIndex == State.getActiveTabIndex() then
 			local el = ui
 			el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
@@ -241,6 +224,18 @@ local function pollForRequests(connIndex)
 				end
 				local elapsed = _exp - _condition_1
 				el.troubleshootLabel.Visible = elapsed > 8
+				if elapsed > 3 and elapsed % 5 < conn.pollInterval then
+					task.spawn(function()
+						local discovered = discoverPort()
+						if discovered ~= nil and discovered ~= conn.port then
+							conn.port = discovered
+							conn.serverUrl = `http://localhost:{discovered}`
+							if connIndex == State.getActiveTabIndex() then
+								UI.getElements().urlInput.Text = conn.serverUrl
+							end
+						end
+					end)
+				end
 				UI.startPulseAnimation()
 			end
 		end
@@ -262,6 +257,20 @@ local function pollForRequests(connIndex)
 		conn.consecutiveFailures += 1
 		if conn.consecutiveFailures > 1 then
 			conn.currentRetryDelay = math.min(conn.currentRetryDelay * conn.retryBackoffMultiplier, conn.maxRetryDelay)
+		end
+		if conn.consecutiveFailures == 5 or conn.consecutiveFailures % 20 == 0 then
+			task.spawn(function()
+				local discovered = discoverPort()
+				if discovered ~= nil and discovered ~= conn.port then
+					conn.port = discovered
+					conn.serverUrl = `http://localhost:{discovered}`
+					conn.consecutiveFailures = 0
+					conn.currentRetryDelay = 0.5
+					if connIndex == State.getActiveTabIndex() then
+						UI.getElements().urlInput.Text = conn.serverUrl
+					end
+				end
+			end)
 		end
 		if connIndex == State.getActiveTabIndex() then
 			local el = ui
@@ -321,6 +330,35 @@ local function pollForRequests(connIndex)
 		end
 	end
 end
+function discoverPort()
+	local firstActivePort
+	for offset = 0, 4 do
+		local port = State.BASE_PORT + offset
+		local success, result = pcall(function()
+			return HttpService:RequestAsync({
+				Url = `http://localhost:{port}/status`,
+				Method = "GET",
+				Headers = {
+					["Content-Type"] = "application/json",
+				},
+			})
+		end)
+		if success and result.Success then
+			local ok, data = pcall(function()
+				return HttpService:JSONDecode(result.Body)
+			end)
+			if ok and data.mcpServerActive then
+				if not data.pluginConnected then
+					return port
+				end
+				if firstActivePort == nil then
+					firstActivePort = port
+				end
+			end
+		end
+	end
+	return firstActivePort
+end
 local function activatePlugin(connIndex)
 	local _condition = connIndex
 	if _condition == nil then
@@ -346,11 +384,18 @@ local function activatePlugin(connIndex)
 			end
 			conn.port = _condition_1
 		end
-		UI.updateTabLabel(idx)
 		UI.updateUIState()
 	end
 	UI.updateTabDot(idx)
 	task.spawn(function()
+		local discoveredPort = discoverPort()
+		if discoveredPort ~= nil then
+			conn.port = discoveredPort
+			conn.serverUrl = `http://localhost:{discoveredPort}`
+			if idx == State.getActiveTabIndex() then
+				ui.urlInput.Text = conn.serverUrl
+			end
+		end
 		if not conn.heartbeatConnection then
 			conn.heartbeatConnection = RunService.Heartbeat:Connect(function()
 				local now = tick()
@@ -361,30 +406,19 @@ local function activatePlugin(connIndex)
 				end
 			end)
 		end
-		local readyOk, readyResult = pcall(function()
-			return HttpService:RequestAsync({
+		pcall(function()
+			HttpService:RequestAsync({
 				Url = `{conn.serverUrl}/ready`,
 				Method = "POST",
 				Headers = {
 					["Content-Type"] = "application/json",
 				},
 				Body = HttpService:JSONEncode({
-					instanceId = instanceId,
-					role = detectRole(),
 					pluginReady = true,
 					timestamp = tick(),
 				}),
 			})
 		end)
-		if readyOk and readyResult.Success then
-			local parseOk, readyData = pcall(function()
-				return HttpService:JSONDecode(readyResult.Body)
-			end)
-			local _value = parseOk and readyData.assignedRole
-			if _value ~= "" and _value then
-				assignedRole = readyData.assignedRole
-			end
-		end
 	end)
 end
 local function deactivatePlugin(connIndex)
@@ -398,7 +432,6 @@ local function deactivatePlugin(connIndex)
 		return nil
 	end
 	conn.isActive = false
-	conn.lastMcpOk = false
 	if idx == State.getActiveTabIndex() then
 		UI.updateUIState()
 	end
@@ -411,7 +444,6 @@ local function deactivatePlugin(connIndex)
 				["Content-Type"] = "application/json",
 			},
 			Body = HttpService:JSONEncode({
-				instanceId = instanceId,
 				timestamp = tick(),
 			}),
 		})
@@ -1339,57 +1371,33 @@ local CaptureService = game:GetService("CaptureService")
 local AssetService = game:GetService("AssetService")
 local MAX_TILE_SIZE = 1024
 local BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-local PAD_BYTE = (string.byte("="))
-local B64 = {}
-for i = 0, 63 do
-	B64[i + 1] = (string.byte(BASE64_CHARS, i + 1))
-end
 local function encodeBase64(buf)
 	local len = buffer.len(buf)
-	local fullTriples = math.floor(len / 3)
-	local remaining = len - fullTriples * 3
-	local outLen = (fullTriples + (if remaining > 0 then 1 else 0)) * 4
-	local out = buffer.create(outLen)
-	local si = 0
-	local di = 0
-	do
-		local t = 0
-		local _shouldIncrement = false
-		while true do
-			if _shouldIncrement then
-				t += 1
-			else
-				_shouldIncrement = true
-			end
-			if not (t < fullTriples) then
-				break
-			end
-			local b0 = buffer.readu8(buf, si)
-			local b1 = buffer.readu8(buf, si + 1)
-			local b2 = buffer.readu8(buf, si + 2)
-			buffer.writeu8(out, di, B64[bit32.rshift(b0, 2) + 1])
-			buffer.writeu8(out, di + 1, B64[bit32.bor(bit32.lshift(bit32.band(b0, 3), 4), bit32.rshift(b1, 4)) + 1])
-			buffer.writeu8(out, di + 2, B64[bit32.bor(bit32.lshift(bit32.band(b1, 15), 2), bit32.rshift(b2, 6)) + 1])
-			buffer.writeu8(out, di + 3, B64[bit32.band(b2, 63) + 1])
-			si += 3
-			di += 4
-		end
+	local parts = {}
+	local i = 0
+	while i + 2 < len do
+		local b0 = buffer.readu8(buf, i)
+		local b1 = buffer.readu8(buf, i + 1)
+		local b2 = buffer.readu8(buf, i + 2)
+		local triplet = bit32.lshift(b0, 16) + bit32.lshift(b1, 8) + b2
+		local _arg0 = string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 6), 63) + 1, bit32.band(bit32.rshift(triplet, 6), 63) + 1) .. string.sub(BASE64_CHARS, bit32.band(triplet, 63) + 1, bit32.band(triplet, 63) + 1)
+		table.insert(parts, _arg0)
+		i += 3
 	end
+	local remaining = len - i
 	if remaining == 2 then
-		local b0 = buffer.readu8(buf, si)
-		local b1 = buffer.readu8(buf, si + 1)
-		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2) + 1])
-		buffer.writeu8(out, di + 1, B64[bit32.bor(bit32.lshift(bit32.band(b0, 3), 4), bit32.rshift(b1, 4)) + 1])
-		buffer.writeu8(out, di + 2, B64[bit32.lshift(bit32.band(b1, 15), 2) + 1])
-		buffer.writeu8(out, di + 3, PAD_BYTE)
+		local b0 = buffer.readu8(buf, i)
+		local b1 = buffer.readu8(buf, i + 1)
+		local triplet = bit32.lshift(b0, 16) + bit32.lshift(b1, 8)
+		local _arg0 = string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 6), 63) + 1, bit32.band(bit32.rshift(triplet, 6), 63) + 1) .. "="
+		table.insert(parts, _arg0)
 	elseif remaining == 1 then
-		local b0 = buffer.readu8(buf, si)
-		buffer.writeu8(out, di, B64[bit32.rshift(b0, 2) + 1])
-		buffer.writeu8(out, di + 1, B64[bit32.lshift(bit32.band(b0, 3), 4) + 1])
-		buffer.writeu8(out, di + 2, PAD_BYTE)
-		buffer.writeu8(out, di + 3, PAD_BYTE)
+		local b0 = buffer.readu8(buf, i)
+		local triplet = bit32.lshift(b0, 16)
+		local _arg0 = string.sub(BASE64_CHARS, bit32.rshift(triplet, 18) + 1, bit32.rshift(triplet, 18) + 1) .. string.sub(BASE64_CHARS, bit32.band(bit32.rshift(triplet, 12), 63) + 1, bit32.band(bit32.rshift(triplet, 12), 63) + 1) .. "=="
+		table.insert(parts, _arg0)
 	end
-	return buffer.tostring(out)
+	return table.concat(parts, "")
 end
 local function readPixelsTiled(img, w, h)
 	local BYTES_PER_PIXEL = 4
@@ -1444,7 +1452,7 @@ local function readPixelsTiled(img, w, h)
 	end
 	return fullBuf
 end
-local function captureScreenshotData()
+local function captureScreenshot()
 	local contentId
 	CaptureService:CaptureScreenshot(function(id)
 		contentId = id
@@ -1487,171 +1495,13 @@ local function captureScreenshotData()
 		data = base64Data,
 	}
 end
-local function captureScreenshot()
-	return captureScreenshotData()
-end
 return {
-	captureScreenshotData = captureScreenshotData,
 	captureScreenshot = captureScreenshot,
 }
 ]]></string>
           </Properties>
         </Item>
         <Item class="ModuleScript" referent="7">
-          <Properties>
-            <string name="Name">InputHandlers</string>
-            <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
-local function getVIM()
-	local ok, result = pcall(function()
-		return game:GetService("VirtualInputManager")
-	end)
-	if ok and result then
-		return result
-	end
-	return nil
-end
-local BUTTON_MAP = {
-	Left = 0,
-	Right = 1,
-	Middle = 2,
-}
-local function simulateMouseInput(requestData)
-	local action = requestData.action
-	local x = requestData.x
-	local y = requestData.y
-	local _condition = (requestData.button)
-	if _condition == nil then
-		_condition = "Left"
-	end
-	local button = _condition
-	local scrollDirection = requestData.scrollDirection
-	if not (action ~= "" and action) then
-		return {
-			error = "action is required",
-		}
-	end
-	local vim = getVIM()
-	if not vim then
-		return {
-			error = "VirtualInputManager is not available in this context",
-		}
-	end
-	local _condition_1 = BUTTON_MAP[button]
-	if _condition_1 == nil then
-		_condition_1 = 0
-	end
-	local buttonNum = _condition_1
-	local success, err = pcall(function()
-		if action == "click" then
-			if x == nil or y == nil then
-				error("x and y are required for click")
-			end
-			vim:SendMouseButtonEvent(x, y, buttonNum, true)
-			task.wait(0.05)
-			vim:SendMouseButtonEvent(x, y, buttonNum, false)
-		elseif action == "mouseDown" then
-			if x == nil or y == nil then
-				error("x and y are required for mouseDown")
-			end
-			vim:SendMouseButtonEvent(x, y, buttonNum, true)
-		elseif action == "mouseUp" then
-			if x == nil or y == nil then
-				error("x and y are required for mouseUp")
-			end
-			vim:SendMouseButtonEvent(x, y, buttonNum, false)
-		elseif action == "move" then
-			if x == nil or y == nil then
-				error("x and y are required for move")
-			end
-			vim:SendMouseMoveEvent(x, y)
-		elseif action == "scroll" then
-			if x == nil or y == nil then
-				error("x and y are required for scroll")
-			end
-			if not (scrollDirection ~= "" and scrollDirection) then
-				error("scrollDirection is required for scroll")
-			end
-			vim:SendMouseWheelEvent(x, y, scrollDirection == "up")
-		else
-			error(`Unknown action: {action}`)
-		end
-	end)
-	if success then
-		return {
-			success = true,
-			action = action,
-			x = x,
-			y = y,
-			button = button,
-		}
-	end
-	return {
-		error = `Failed to simulate mouse input: {err}`,
-	}
-end
-local function simulateKeyboardInput(requestData)
-	local keyCodeName = requestData.keyCode
-	local _condition = (requestData.action)
-	if _condition == nil then
-		_condition = "tap"
-	end
-	local action = _condition
-	local _condition_1 = (requestData.duration)
-	if _condition_1 == nil then
-		_condition_1 = 0.1
-	end
-	local duration = _condition_1
-	if not (keyCodeName ~= "" and keyCodeName) then
-		return {
-			error = "keyCode is required",
-		}
-	end
-	local vim = getVIM()
-	if not vim then
-		return {
-			error = "VirtualInputManager is not available in this context",
-		}
-	end
-	local enumOk, keyCode = pcall(function()
-		return (Enum.KeyCode)[keyCodeName]
-	end)
-	if not enumOk or not keyCode then
-		return {
-			error = `Unknown keyCode: {keyCodeName}. Use Enum.KeyCode names like "W", "Space", "E", "LeftShift", etc.`,
-		}
-	end
-	local success, err = pcall(function()
-		if action == "press" then
-			vim:SendKeyEvent(true, keyCode, false)
-		elseif action == "release" then
-			vim:SendKeyEvent(false, keyCode, false)
-		elseif action == "tap" then
-			vim:SendKeyEvent(true, keyCode, false)
-			task.wait(duration)
-			vim:SendKeyEvent(false, keyCode, false)
-		else
-			error(`Unknown action: {action}`)
-		end
-	end)
-	if success then
-		return {
-			success = true,
-			keyCode = keyCodeName,
-			action = action,
-		}
-	end
-	return {
-		error = `Failed to simulate keyboard input: {err}`,
-	}
-end
-return {
-	simulateMouseInput = simulateMouseInput,
-	simulateKeyboardInput = simulateKeyboardInput,
-}
-]]></string>
-          </Properties>
-        </Item>
-        <Item class="ModuleScript" referent="8">
           <Properties>
             <string name="Name">InstanceHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -1774,8 +1624,7 @@ local function createObject(requestData)
 		end
 		for propertyName, propertyValue in pairs(properties) do
 			pcall(function()
-				local converted = convertPropertyValue(instance, propertyName, propertyValue)
-				instance[propertyName] = if converted ~= nil then converted else propertyValue
+				instance[propertyName] = propertyValue
 			end)
 		end
 		instance.Parent = parentInstance
@@ -1864,6 +1713,71 @@ local function massCreateObjects(requestData)
 				instance.Name = name
 			end
 			instance.Parent = parentInstance
+			return instance
+		end)
+		if not success or not newInstance then
+			return {
+				error = tostring(newInstance),
+				className = className,
+				parentPath = parentPath,
+			}
+		end
+		return {
+			instance = newInstance,
+			className = className,
+			parentPath = parentPath,
+		}
+	end)
+	local results = _binding_2.results
+	local successCount = _binding_2.successCount
+	local failureCount = _binding_2.failureCount
+	finishRecording(recordingId, successCount > 0)
+	return {
+		results = results,
+		summary = {
+			total = #objects,
+			succeeded = successCount,
+			failed = failureCount,
+		},
+	}
+end
+local function massCreateObjectsWithProperties(requestData)
+	local objects = requestData.objects
+	if not objects or not (type(objects) == "table") or #objects == 0 then
+		return {
+			error = "Objects array is required",
+		}
+	end
+	local recordingId = beginRecording("Mass create objects with properties")
+	local _binding_2 = processObjectEntries(objects, function(objData)
+		local className = objData.className
+		local parentPath = objData.parent
+		local name = objData.name
+		local propertiesRaw = objData.properties
+		local properties = if type(propertiesRaw) == "table" then propertiesRaw else ({})
+		local parentInstance = getInstanceByPath(parentPath)
+		if not parentInstance then
+			return {
+				error = "Parent instance not found",
+				className = className,
+				parentPath = parentPath,
+			}
+		end
+		local success, newInstance = pcall(function()
+			local instance = Instance.new(className)
+			if name ~= "" and name then
+				instance.Name = name
+			end
+			instance.Parent = parentInstance
+			for propName, propValue in pairs(properties) do
+				pcall(function()
+					local propNameStr = tostring(propName)
+					local converted = convertPropertyValue(instance, propNameStr, propValue)
+					if converted ~= nil then
+						instance[propNameStr] = converted
+					end
+				end)
+			end
 			return instance
 		end)
 		if not success or not newInstance then
@@ -2098,102 +2012,18 @@ local function massDuplicate(requestData)
 		},
 	}
 end
-local function cloneObject(requestData)
-	local instancePath = requestData.instancePath
-	local targetParentPath = requestData.targetParentPath
-	if not (instancePath ~= "" and instancePath) or not (targetParentPath ~= "" and targetParentPath) then
-		return {
-			error = "Instance path and target parent path are required",
-		}
-	end
-	local instance = getInstanceByPath(instancePath)
-	if not instance then
-		return {
-			error = `Instance not found: {instancePath}`,
-		}
-	end
-	local targetParent = getInstanceByPath(targetParentPath)
-	if not targetParent then
-		return {
-			error = `Target parent not found: {targetParentPath}`,
-		}
-	end
-	local recordingId = beginRecording(`Clone {instance.Name}`)
-	local success, clone = pcall(function()
-		local cloned = instance:Clone()
-		cloned.Parent = targetParent
-		return cloned
-	end)
-	if success and clone then
-		finishRecording(recordingId, true)
-		return {
-			success = true,
-			instancePath = getInstancePath(clone),
-			name = clone.Name,
-			className = clone.ClassName,
-			parent = targetParentPath,
-			message = "Object cloned successfully",
-		}
-	end
-	finishRecording(recordingId, false)
-	return {
-		error = `Failed to clone object: {clone}`,
-	}
-end
-local function moveObject(requestData)
-	local instancePath = requestData.instancePath
-	local targetParentPath = requestData.targetParentPath
-	if not (instancePath ~= "" and instancePath) or not (targetParentPath ~= "" and targetParentPath) then
-		return {
-			error = "Instance path and target parent path are required",
-		}
-	end
-	local instance = getInstanceByPath(instancePath)
-	if not instance then
-		return {
-			error = `Instance not found: {instancePath}`,
-		}
-	end
-	local targetParent = getInstanceByPath(targetParentPath)
-	if not targetParent then
-		return {
-			error = `Target parent not found: {targetParentPath}`,
-		}
-	end
-	local recordingId = beginRecording(`Move {instance.Name}`)
-	local success, result = pcall(function()
-		instance.Parent = targetParent
-		return true
-	end)
-	if success then
-		finishRecording(recordingId, true)
-		return {
-			success = true,
-			instancePath = getInstancePath(instance),
-			name = instance.Name,
-			className = instance.ClassName,
-			parent = targetParentPath,
-			message = "Object moved successfully",
-		}
-	end
-	finishRecording(recordingId, false)
-	return {
-		error = `Failed to move object: {result}`,
-	}
-end
 return {
 	createObject = createObject,
 	deleteObject = deleteObject,
 	massCreateObjects = massCreateObjects,
+	massCreateObjectsWithProperties = massCreateObjectsWithProperties,
 	smartDuplicate = smartDuplicate,
 	massDuplicate = massDuplicate,
-	cloneObject = cloneObject,
-	moveObject = moveObject,
 }
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="9">
+        <Item class="ModuleScript" referent="8">
           <Properties>
             <string name="Name">MetadataHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -2738,58 +2568,6 @@ local function redo(_requestData)
 		error = `Failed to redo: {result}`,
 	}
 end
-local function bulkSetAttributes(requestData)
-	local instancePath = requestData.instancePath
-	local attributes = requestData.attributes
-	if not (instancePath ~= "" and instancePath) or not attributes then
-		return {
-			error = "Instance path and attributes are required",
-		}
-	end
-	local instance = getInstanceByPath(instancePath)
-	if not instance then
-		return {
-			error = `Instance not found: {instancePath}`,
-		}
-	end
-	local recordingId = beginRecording(`Bulk set attributes on {instance.Name}`)
-	local results = {}
-	local successCount = 0
-	local failureCount = 0
-	for name, rawValue in pairs(attributes) do
-		local attrName = name
-		local ok, err = pcall(function()
-			local value = deserializeValue(rawValue)
-			instance:SetAttribute(attrName, value)
-		end)
-		if ok then
-			successCount += 1
-			local _arg0 = {
-				attributeName = attrName,
-				success = true,
-			}
-			table.insert(results, _arg0)
-		else
-			failureCount += 1
-			local _arg0 = {
-				attributeName = attrName,
-				success = false,
-				error = tostring(err),
-			}
-			table.insert(results, _arg0)
-		end
-	end
-	finishRecording(recordingId, successCount > 0)
-	return {
-		instancePath = instancePath,
-		results = results,
-		summary = {
-			total = successCount + failureCount,
-			succeeded = successCount,
-			failed = failureCount,
-		},
-	}
-end
 return {
 	getAttribute = getAttribute,
 	setAttribute = setAttribute,
@@ -2803,12 +2581,11 @@ return {
 	executeLuau = executeLuau,
 	undo = undo,
 	redo = redo,
-	bulkSetAttributes = bulkSetAttributes,
 }
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="10">
+        <Item class="ModuleScript" referent="9">
           <Properties>
             <string name="Name">PropertyHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -2818,6 +2595,7 @@ local Recording = TS.import(script, script.Parent.Parent, "Recording")
 local _binding = Utils
 local getInstanceByPath = _binding.getInstanceByPath
 local convertPropertyValue = _binding.convertPropertyValue
+local evaluateFormula = _binding.evaluateFormula
 local _binding_1 = Recording
 local beginRecording = _binding_1.beginRecording
 local finishRecording = _binding_1.finishRecording
@@ -2984,15 +2762,233 @@ local function massGetProperty(requestData)
 		propertyName = propertyName,
 	}
 end
+local function setCalculatedProperty(requestData)
+	local paths = requestData.paths
+	local propertyName = requestData.propertyName
+	local formula = requestData.formula
+	local variables = requestData.variables
+	if not paths or not (type(paths) == "table") or #paths == 0 or not (propertyName ~= "" and propertyName) or not (formula ~= "" and formula) then
+		return {
+			error = "Paths, property name, and formula are required",
+		}
+	end
+	local results = {}
+	local successCount = 0
+	local failureCount = 0
+	local recordingId = beginRecording(`Set calculated {propertyName} property`)
+	for i = 0, #paths - 1 do
+		local path = paths[i + 1]
+		local instance = getInstanceByPath(path)
+		if instance then
+			local value, evalError = evaluateFormula(formula, variables, instance, i + 1)
+			if value ~= nil and not (evalError ~= "" and evalError) then
+				local success, err = pcall(function()
+					instance[propertyName] = value
+				end)
+				if success then
+					successCount += 1
+					local _arg0 = {
+						path = path,
+						success = true,
+						propertyName = propertyName,
+						calculatedValue = value,
+						formula = formula,
+					}
+					table.insert(results, _arg0)
+				else
+					failureCount += 1
+					local _arg0 = {
+						path = path,
+						success = false,
+						error = `Property set failed: {err}`,
+					}
+					table.insert(results, _arg0)
+				end
+			else
+				failureCount += 1
+				local _object = {
+					path = path,
+					success = false,
+				}
+				local _left = "error"
+				local _condition = evalError
+				if _condition == nil then
+					_condition = "Formula evaluation failed"
+				end
+				_object[_left] = _condition
+				table.insert(results, _object)
+			end
+		else
+			failureCount += 1
+			local _arg0 = {
+				path = path,
+				success = false,
+				error = "Instance not found",
+			}
+			table.insert(results, _arg0)
+		end
+	end
+	finishRecording(recordingId, successCount > 0)
+	return {
+		results = results,
+		summary = {
+			total = #paths,
+			succeeded = successCount,
+			failed = failureCount,
+		},
+		formula = formula,
+	}
+end
+local function setRelativeProperty(requestData)
+	local paths = requestData.paths
+	local propertyName = requestData.propertyName
+	local operation = requestData.operation
+	local value = requestData.value
+	local component = requestData.component
+	if not paths or not (type(paths) == "table") or #paths == 0 or not (propertyName ~= "" and propertyName) or not (operation ~= "" and operation) or value == nil then
+		return {
+			error = "Paths, property name, operation, and value are required",
+		}
+	end
+	local results = {}
+	local successCount = 0
+	local failureCount = 0
+	local recordingId = beginRecording(`Set relative {propertyName} property`)
+	local function applyOp(current, op, val)
+		if op == "add" then
+			return current + val
+		end
+		if op == "subtract" then
+			return current - val
+		end
+		if op == "multiply" then
+			return current * val
+		end
+		if op == "divide" then
+			return current / val
+		end
+		if op == "power" then
+			return current ^ val
+		end
+		return current
+	end
+	for _, path in paths do
+		local instance = getInstanceByPath(path)
+		if instance then
+			local success, err = pcall(function()
+				local currentValue = instance[propertyName]
+				local newValue
+				local _condition = component
+				if _condition ~= "" and _condition then
+					_condition = typeof(currentValue) == "Vector3"
+				end
+				if _condition ~= "" and _condition then
+					local cv = currentValue
+					local x = cv.X
+					local y = cv.Y
+					local z = cv.Z
+					if component == "X" then
+						x = applyOp(x, operation, value)
+					elseif component == "Y" then
+						y = applyOp(y, operation, value)
+					elseif component == "Z" then
+						z = applyOp(z, operation, value)
+					end
+					newValue = Vector3.new(x, y, z)
+				elseif typeof(currentValue) == "Color3" and typeof(value) == "Color3" then
+					local cv = currentValue
+					local v = value
+					if operation == "add" then
+						newValue = Color3.new(math.min(1, cv.R + v.R), math.min(1, cv.G + v.G), math.min(1, cv.B + v.B))
+					elseif operation == "subtract" then
+						newValue = Color3.new(math.max(0, cv.R - v.R), math.max(0, cv.G - v.G), math.max(0, cv.B - v.B))
+					elseif operation == "multiply" then
+						newValue = Color3.new(cv.R * v.R, cv.G * v.G, cv.B * v.B)
+					end
+				elseif type(currentValue) == "number" and type(value) == "number" then
+					newValue = applyOp(currentValue, operation, value)
+				elseif typeof(currentValue) == "Vector3" and type(value) == "number" then
+					local cv = currentValue
+					newValue = Vector3.new(applyOp(cv.X, operation, value), applyOp(cv.Y, operation, value), applyOp(cv.Z, operation, value))
+				else
+					local _value = typeof(currentValue) == "UDim2" and type(value) == "number" and component
+					if _value ~= "" and _value then
+						local cv = currentValue
+						local xs = cv.X.Scale
+						local xo = cv.X.Offset
+						local ys = cv.Y.Scale
+						local yo = cv.Y.Offset
+						if component == "XScale" then
+							xs = applyOp(xs, operation, value)
+						elseif component == "XOffset" then
+							xo = applyOp(xo, operation, value)
+						elseif component == "YScale" then
+							ys = applyOp(ys, operation, value)
+						elseif component == "YOffset" then
+							yo = applyOp(yo, operation, value)
+						end
+						newValue = UDim2.new(xs, xo, ys, yo)
+					else
+						error("Unsupported property type or operation")
+					end
+				end
+				instance[propertyName] = newValue
+				return newValue
+			end)
+			if success then
+				successCount += 1
+				local _arg0 = {
+					path = path,
+					success = true,
+					propertyName = propertyName,
+					operation = operation,
+					value = value,
+					component = component,
+					newValue = err,
+				}
+				table.insert(results, _arg0)
+			else
+				failureCount += 1
+				local _arg0 = {
+					path = path,
+					success = false,
+					error = tostring(err),
+				}
+				table.insert(results, _arg0)
+			end
+		else
+			failureCount += 1
+			local _arg0 = {
+				path = path,
+				success = false,
+				error = "Instance not found",
+			}
+			table.insert(results, _arg0)
+		end
+	end
+	finishRecording(recordingId, successCount > 0)
+	return {
+		results = results,
+		summary = {
+			total = #paths,
+			succeeded = successCount,
+			failed = failureCount,
+		},
+		operation = operation,
+		value = value,
+	}
+end
 return {
 	setProperty = setProperty,
 	massSetProperty = massSetProperty,
 	massGetProperty = massGetProperty,
+	setCalculatedProperty = setCalculatedProperty,
+	setRelativeProperty = setRelativeProperty,
 }
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="11">
+        <Item class="ModuleScript" referent="10">
           <Properties>
             <string name="Name">QueryHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -3834,172 +3830,6 @@ local function grepScripts(requestData)
 		},
 	}
 end
-local function getDescendants(requestData)
-	local instancePath = requestData.instancePath
-	if not (instancePath ~= "" and instancePath) then
-		return {
-			error = "Instance path is required",
-		}
-	end
-	local _condition = (requestData.maxDepth)
-	if _condition == nil then
-		_condition = 10
-	end
-	local maxDepth = _condition
-	local classFilter = requestData.classFilter
-	local instance = getInstanceByPath(instancePath)
-	if not instance then
-		return {
-			error = `Instance not found: {instancePath}`,
-		}
-	end
-	local descendants = {}
-	local function collect(inst, depth)
-		if depth > maxDepth then
-			return nil
-		end
-		for _, child in inst:GetChildren() do
-			local _condition_1 = classFilter
-			if _condition_1 ~= "" and _condition_1 then
-				_condition_1 = not child:IsA(classFilter)
-			end
-			if _condition_1 ~= "" and _condition_1 then
-				continue
-			end
-			local _arg0 = {
-				name = child.Name,
-				className = child.ClassName,
-				path = getInstancePath(child),
-				depth = depth,
-			}
-			table.insert(descendants, _arg0)
-			collect(child, depth + 1)
-		end
-	end
-	collect(instance, 1)
-	return {
-		instancePath = instancePath,
-		descendants = descendants,
-		count = #descendants,
-		maxDepth = maxDepth,
-	}
-end
-local function compareInstances(requestData)
-	local instancePathA = requestData.instancePathA
-	local instancePathB = requestData.instancePathB
-	if not (instancePathA ~= "" and instancePathA) or not (instancePathB ~= "" and instancePathB) then
-		return {
-			error = "Both instancePathA and instancePathB are required",
-		}
-	end
-	local instA = getInstanceByPath(instancePathA)
-	if not instA then
-		return {
-			error = `Instance not found: {instancePathA}`,
-		}
-	end
-	local instB = getInstanceByPath(instancePathB)
-	if not instB then
-		return {
-			error = `Instance not found: {instancePathB}`,
-		}
-	end
-	local commonProps = { "Name", "ClassName", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
-	local matching = {}
-	local differing = {}
-	local onlyA = {}
-	local onlyB = {}
-	for _, prop in commonProps do
-		local okA, valA = pcall(function()
-			return tostring(instA[prop])
-		end)
-		local okB, valB = pcall(function()
-			return tostring(instB[prop])
-		end)
-		if okA and okB then
-			if valA == valB then
-				matching[prop] = valA
-			else
-				differing[prop] = {
-					a = valA,
-					b = valB,
-				}
-			end
-		elseif okA then
-			table.insert(onlyA, prop)
-		elseif okB then
-			table.insert(onlyB, prop)
-		end
-	end
-	return {
-		instancePathA = instancePathA,
-		instancePathB = instancePathB,
-		classNameA = instA.ClassName,
-		classNameB = instB.ClassName,
-		matching = matching,
-		differing = differing,
-		onlyA = onlyA,
-		onlyB = onlyB,
-	}
-end
-local function getOutputLog(requestData)
-	local _condition = (requestData.maxEntries)
-	if _condition == nil then
-		_condition = 100
-	end
-	local maxEntries = _condition
-	local messageTypeFilter = requestData.messageType
-	local success, result = pcall(function()
-		local LogService = game:GetService("LogService")
-		local history = LogService:GetLogHistory()
-		local allEntries = {}
-		for _, entry in history do
-			local msgType = tostring(entry.messageType)
-			local _condition_1 = messageTypeFilter
-			if _condition_1 ~= "" and _condition_1 then
-				_condition_1 = msgType ~= messageTypeFilter
-			end
-			if _condition_1 ~= "" and _condition_1 then
-				continue
-			end
-			local _arg0 = {
-				message = entry.message,
-				messageType = msgType,
-				timestamp = entry.timestamp,
-			}
-			table.insert(allEntries, _arg0)
-		end
-		local startIdx = math.max(0, #allEntries - maxEntries)
-		local finalEntries = {}
-		do
-			local i = startIdx
-			local _shouldIncrement = false
-			while true do
-				if _shouldIncrement then
-					i += 1
-				else
-					_shouldIncrement = true
-				end
-				if not (i < #allEntries) then
-					break
-				end
-				local _arg0 = allEntries[i + 1]
-				table.insert(finalEntries, _arg0)
-			end
-		end
-		return {
-			entries = finalEntries,
-			count = #finalEntries,
-			totalAvailable = #allEntries,
-		}
-	end)
-	if success then
-		return result
-	end
-	return {
-		error = `Failed to get output log: {result}`,
-	}
-end
 return {
 	getFileTree = getFileTree,
 	searchFiles = searchFiles,
@@ -4012,14 +3842,11 @@ return {
 	getClassInfo = getClassInfo,
 	getProjectStructure = getProjectStructure,
 	grepScripts = grepScripts,
-	getDescendants = getDescendants,
-	compareInstances = compareInstances,
-	getOutputLog = getOutputLog,
 }
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="12">
+        <Item class="ModuleScript" referent="11">
           <Properties>
             <string name="Name">ScriptHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -4038,12 +3865,11 @@ local beginRecording = _binding_1.beginRecording
 local finishRecording = _binding_1.finishRecording
 local function normalizeEscapes(s)
 	local result = s
-	result = (string.gsub(result, "\\\\", "\x01"))
 	result = (string.gsub(result, "\\n", "\n"))
 	result = (string.gsub(result, "\\t", "\t"))
 	result = (string.gsub(result, "\\r", "\r"))
 	result = (string.gsub(result, '\\"', '"'))
-	result = (string.gsub(result, "\x01", "\\"))
+	result = (string.gsub(result, "\\\\", "\\"))
 	return result
 end
 local function getScriptSource(requestData)
@@ -4164,6 +3990,12 @@ local function getScriptSource(requestData)
 		if instance:IsA("BaseScript") then
 			resp.enabled = instance.Enabled
 		end
+		-- Add top-level service for context (walk up to game's direct child)
+		local topServiceInst = instance
+		while topServiceInst.Parent and topServiceInst.Parent ~= game do
+			topServiceInst = topServiceInst.Parent
+		end
+		resp.topService = topServiceInst.Name
 		return resp
 	end)
 	if success then
@@ -4259,18 +4091,17 @@ local function setScriptSource(requestData)
 		error = `Failed to set script source. UpdateSourceAsync failed: {updateResult}. Direct assignment failed: {directResult}. Replace method failed: {replaceResult}`,
 	}
 end
-local escapeLuaPattern, escapeLuaReplacement
 local function editScriptLines(requestData)
 	local instancePath = requestData.instancePath
-	local oldString = requestData.old_string
-	local newString = requestData.new_string
-	if not (instancePath ~= "" and instancePath) or oldString == nil or newString == nil then
+	local startLine = requestData.startLine
+	local endLine = requestData.endLine
+	local newContent = requestData.newContent
+	if not (instancePath ~= "" and instancePath) or not (startLine ~= 0 and startLine == startLine and startLine) or not (endLine ~= 0 and endLine == endLine and endLine) or not (newContent ~= "" and newContent) then
 		return {
-			error = "Instance path, old_string, and new_string are required",
+			error = "Instance path, startLine, endLine, and newContent are required",
 		}
 	end
-	oldString = normalizeEscapes(oldString)
-	newString = normalizeEscapes(newString)
+	newContent = normalizeEscapes(newContent)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
@@ -4282,41 +4113,68 @@ local function editScriptLines(requestData)
 			error = `Instance is not a script-like object: {instance.ClassName}`,
 		}
 	end
-	local recordingId = beginRecording(`Edit script: {instance.Name}`)
+	local recordingId = beginRecording(`Edit script lines {startLine}-{endLine}: {instance.Name}`)
 	local success, result = pcall(function()
-		local source = readScriptSource(instance)
-		-- Count occurrences to ensure uniqueness
-		local count = 0
-		local searchPos = 1
-		local searchLen = #oldString
-		while true do
-			local foundStart = string.find(source, oldString, searchPos, true)
-			if foundStart == nil then
-				break
+		local lines, hadTrailingNewline = splitLines(readScriptSource(instance))
+		local totalLines = #lines
+		if startLine < 1 or startLine > totalLines then
+			error(`startLine out of range (1-{totalLines})`)
+		end
+		if endLine < startLine or endLine > totalLines then
+			error(`endLine out of range ({startLine}-{totalLines})`)
+		end
+		local newLines = splitLines(newContent)
+		local resultLines = {}
+		do
+			local i = 0
+			local _shouldIncrement = false
+			while true do
+				if _shouldIncrement then
+					i += 1
+				else
+					_shouldIncrement = true
+				end
+				if not (i < startLine - 1) then
+					break
+				end
+				local _arg0 = lines[i + 1]
+				table.insert(resultLines, _arg0)
 			end
-			count += 1
-			if count > 1 then
-				break
+		end
+		for _, line in newLines do
+			table.insert(resultLines, line)
+		end
+		do
+			local i = endLine
+			local _shouldIncrement = false
+			while true do
+				if _shouldIncrement then
+					i += 1
+				else
+					_shouldIncrement = true
+				end
+				if not (i < totalLines) then
+					break
+				end
+				local _arg0 = lines[i + 1]
+				table.insert(resultLines, _arg0)
 			end
-			searchPos = foundStart + searchLen
 		end
-		if count == 0 then
-			error("old_string not found in script")
-		end
-		if count > 1 then
-			error("old_string matches multiple locations. Provide more surrounding context to make it unique")
-		end
-		-- Perform the replacement (plain literal find + replace)
-		local escaped = escapeLuaPattern(oldString)
-		local escapedRepl = escapeLuaReplacement(newString)
-		local newSource = string.gsub(source, escaped, escapedRepl, 1)
+		local newSource = joinLines(resultLines, hadTrailingNewline)
 		ScriptEditorService:UpdateSourceAsync(instance, function()
 			return newSource
 		end)
 		return {
 			success = true,
 			instancePath = instancePath,
-			message = "Script edited successfully",
+			editedLines = {
+				startLine = startLine,
+				endLine = endLine,
+			},
+			linesRemoved = endLine - startLine + 1,
+			linesAdded = #newLines,
+			newLineCount = #resultLines,
+			message = "Script lines edited successfully",
 		}
 	end)
 	if success then
@@ -4325,7 +4183,7 @@ local function editScriptLines(requestData)
 	end
 	finishRecording(recordingId, false)
 	return {
-		error = `Failed to edit script: {result}`,
+		error = `Failed to edit script lines: {result}`,
 	}
 end
 local function insertScriptLines(requestData)
@@ -4507,179 +4365,115 @@ local function deleteScriptLines(requestData)
 		error = `Failed to delete script lines: {result}`,
 	}
 end
-function escapeLuaPattern(s)
-	return (string.gsub(s, "([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"))
-end
-function escapeLuaReplacement(s)
-	return (string.gsub(s, "%%", "%%%%"))
-end
-local function caseInsensitiveLiteralReplace(src, searchStr, repl)
-	local lowerSrc = string.lower(src)
-	local lowerSearch = string.lower(searchStr)
-	local parts = {}
-	local lastEnd = 1
-	local searchLen = #lowerSearch
-	local pos = 1
-	local replCount = 0
-	while true do
-		local foundStart = string.find(lowerSrc, lowerSearch, pos, true)
-		if foundStart == nil then
-			break
-		end
-		local _arg0 = string.sub(src, lastEnd, foundStart - 1)
-		table.insert(parts, _arg0)
-		local _repl = repl
-		table.insert(parts, _repl)
-		lastEnd = foundStart + searchLen
-		pos = foundStart + searchLen
-		replCount += 1
-	end
-	local _arg0 = string.sub(src, lastEnd)
-	table.insert(parts, _arg0)
-	return { table.concat(parts, ""), replCount }
-end
-local function findAndReplaceInScripts(requestData)
-	local searchPattern = requestData.pattern
-	local replacement = requestData.replacement
-	if not (searchPattern ~= "" and searchPattern) then
+local function createScript(requestData)
+	local className = requestData.className
+	local parentPath = requestData.parent
+	local name = requestData.name
+	local source = requestData.source
+	if not (className ~= "" and className) or not (parentPath ~= "" and parentPath) or not (name ~= "" and name) or source == nil then
 		return {
-			error = "pattern is required",
+			error = "className, parent, name, and source are required",
 		}
 	end
-	if replacement == nil then
+	local validClasses = { "Script", "LocalScript", "ModuleScript" }
+	if not (table.find(validClasses, className) ~= nil) then
 		return {
-			error = "replacement is required",
+			error = `className must be one of: {table.concat(validClasses, ", ")}`,
 		}
 	end
-	local _condition = (requestData.caseSensitive)
+	local parentInstance = getInstanceByPath(parentPath)
+	if not parentInstance then
+		return {
+			error = `Parent instance not found: {parentPath}`,
+		}
+	end
+	local recordingId = beginRecording(`Create {className}: {name}`)
+	local success, result = pcall(function()
+		local instance = Instance.new(className)
+		instance.Name = name
+		instance.Parent = parentInstance
+		local sourceToSet = normalizeEscapes(source)
+		ScriptEditorService:UpdateSourceAsync(instance, function()
+			return sourceToSet
+		end)
+		return {
+			success = true,
+			instancePath = getInstancePath(instance),
+			className = className,
+			name = name,
+			parent = parentPath,
+			sourceLength = #sourceToSet,
+			message = `{className} created with source`,
+		}
+	end)
+	if success then
+		finishRecording(recordingId, true)
+		return result
+	end
+	finishRecording(recordingId, false)
+	return {
+		error = `Failed to create script: {result}`,
+	}
+end
+local function getAllScripts(requestData)
+	local _condition = (requestData.path)
 	if _condition == nil then
-		_condition = false
+		_condition = "game"
 	end
-	local caseSensitive = _condition
-	local _condition_1 = (requestData.usePattern)
-	if _condition_1 == nil then
-		_condition_1 = false
-	end
-	local usePattern = _condition_1
-	local _condition_2 = (requestData.path)
-	if _condition_2 == nil then
-		_condition_2 = ""
-	end
-	local searchPath = _condition_2
+	local rootPath = _condition
 	local classFilter = requestData.classFilter
-	local _condition_3 = (requestData.dryRun)
-	if _condition_3 == nil then
-		_condition_3 = false
-	end
-	local dryRun = _condition_3
-	local _condition_4 = (requestData.maxReplacements)
-	if _condition_4 == nil then
-		_condition_4 = 1000
-	end
-	local maxReplacements = _condition_4
-	if not caseSensitive and usePattern then
+	local includeSource = requestData.includeSource ~= false
+	local root = getInstanceByPath(rootPath)
+	if not root then
 		return {
-			error = "Case-insensitive Lua pattern replacement is not supported. Use caseSensitive: true with usePattern: true, or use literal matching.",
+			error = `Root instance not found: {rootPath}`,
 		}
 	end
-	local startInstance = if searchPath ~= "" then getInstanceByPath(searchPath) else game
-	if not startInstance then
-		return {
-			error = `Path not found: {searchPath}`,
-		}
-	end
-	local changes = {}
-	local totalReplacements = 0
-	local scriptsSearched = 0
-	local hitLimit = false
-	local recordingId = if dryRun then nil else beginRecording("Find and replace in scripts")
-	local function processInstance(instance)
-		if hitLimit then
-			return nil
-		end
-		if instance:IsA("LuaSourceContainer") then
-			local _condition_5 = classFilter
-			if _condition_5 ~= "" and _condition_5 then
-				local _exp = string.lower(instance.ClassName)
-				local _arg0 = string.lower(classFilter)
-				local _value = (string.find(_exp, _arg0))
-				_condition_5 = not (_value ~= 0 and _value == _value and _value)
-			end
-			if _condition_5 ~= "" and _condition_5 then
-				return nil
-			end
-			scriptsSearched += 1
-			local source = readScriptSource(instance)
-			local newSource
-			local replCount
-			if usePattern then
-				local result, count = string.gsub(source, searchPattern, replacement)
-				newSource = result
-				replCount = count
-			elseif caseSensitive then
-				local escaped = escapeLuaPattern(searchPattern)
-				local escapedRepl = escapeLuaReplacement(replacement)
-				local result, count = string.gsub(source, escaped, escapedRepl)
-				newSource = result
-				replCount = count
-			else
-				local _binding_2 = caseInsensitiveLiteralReplace(source, searchPattern, replacement)
-				newSource = _binding_2[1]
-				replCount = _binding_2[2]
-			end
-			if replCount > 0 then
-				if totalReplacements + replCount > maxReplacements then
-					hitLimit = true
-					return nil
-				end
-				totalReplacements += replCount
-				if not dryRun then
-					local ok = pcall(function()
-						ScriptEditorService:UpdateSourceAsync(instance, function()
-							return newSource
-						end)
-					end)
-					if not ok then
-						instance.Source = newSource
-					end
-				end
-				local _arg0 = {
+	local scripts = {}
+	local function collectScripts(instance)
+		local isScript = instance:IsA("Script") or instance:IsA("LocalScript") or instance:IsA("ModuleScript")
+		if isScript then
+			if not (classFilter ~= "" and classFilter) or instance.ClassName == classFilter then
+				local entry = {
 					instancePath = getInstancePath(instance),
 					name = instance.Name,
 					className = instance.ClassName,
-					replacements = replCount,
 				}
-				table.insert(changes, _arg0)
+				if includeSource then
+					local ok, src = pcall(function()
+						return readScriptSource(instance)
+					end)
+					if ok then
+						entry.source = src
+						entry.lineCount = #(splitLines(src))
+					end
+				end
+				if instance:IsA("BaseScript") then
+					entry.enabled = instance.Enabled
+				end
+				table.insert(scripts, entry)
 			end
 		end
 		for _, child in instance:GetChildren() do
-			if hitLimit then
-				return nil
-			end
-			processInstance(child)
+			collectScripts(child)
 		end
 	end
-	processInstance(startInstance)
-	if recordingId ~= nil then
-		finishRecording(recordingId, #changes > 0)
-	end
+	collectScripts(root)
 	return {
 		success = true,
-		dryRun = dryRun,
-		pattern = searchPattern,
-		replacement = replacement,
-		totalReplacements = totalReplacements,
-		scriptsSearched = scriptsSearched,
-		scriptsModified = #changes,
-		changes = changes,
-		truncated = hitLimit,
+		rootPath = rootPath,
+		scriptCount = #scripts,
+		scripts = scripts,
 	}
 end
-local function getScriptAnalysis(requestData)
+local function patchScript(requestData)
 	local instancePath = requestData.instancePath
-	if not (instancePath ~= "" and instancePath) then
+	local find = requestData.find
+	local replace = requestData.replace
+	local replaceAll = requestData.replaceAll == true
+	if not (instancePath ~= "" and instancePath) or find == nil or replace == nil then
 		return {
-			error = "Instance path is required",
+			error = "instancePath, find, and replace are required",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
@@ -4688,59 +4482,66 @@ local function getScriptAnalysis(requestData)
 			error = `Instance not found: {instancePath}`,
 		}
 	end
-	local results = {}
-	local function analyzeScript(scriptInstance)
-		if not scriptInstance:IsA("LuaSourceContainer") then
-			return nil
-		end
-		local source = readScriptSource(scriptInstance)
-		local diagnostics = {}
-		local fn, compileError = loadstring(source)
-		local _value = not fn and compileError
-		if _value ~= "" and _value then
-			local lineStr = string.match(tostring(compileError), ":(%d+):")
-			local _arg0 = {
-				line = if lineStr ~= 0 and lineStr == lineStr and lineStr ~= "" and lineStr then tonumber(lineStr) else nil,
-				message = tostring(compileError),
-				severity = "error",
-			}
-			table.insert(diagnostics, _arg0)
-		end
-		local _arg0 = {
-			scriptPath = getInstancePath(scriptInstance),
-			scriptName = scriptInstance.Name,
-			diagnostics = diagnostics,
-			hasErrors = #diagnostics > 0,
+	if not instance:IsA("LuaSourceContainer") then
+		return {
+			error = `Instance is not a script: {instance.ClassName}`,
 		}
-		table.insert(results, _arg0)
 	end
-	if instance:IsA("LuaSourceContainer") then
-		analyzeScript(instance)
-	else
-		for _, desc in instance:GetDescendants() do
-			analyzeScript(desc)
+	local recordingId = beginRecording(`Patch script: {instance.Name}`)
+	local success, result = pcall(function()
+		local source = readScriptSource(instance)
+		local escapedFind = (string.gsub(find, "[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1"))
+		local occurrences = 0
+		local newSource
+		if replaceAll then
+			local _arg1 = (string.gsub(replace, "%%", "%%%%"))
+			newSource = (string.gsub(source, escapedFind, _arg1))
+			-- Count occurrences
+			local pos = 1
+			while true do
+				local _pos = pos
+				local s = string.find(source, escapedFind, _pos, false)
+				if s == nil then
+					break
+				end
+				occurrences += 1
+				pos = s + 1
+			end
+		else
+			local s, e = string.find(source, escapedFind, 1, true)
+			if s == nil then
+				return {
+					success = false,
+					instancePath = instancePath,
+					occurrencesFound = 0,
+					message = "Text not found in script",
+				}
+			end
+			local _arg1 = s - 1
+			local _exp = string.sub(source, 1, _arg1) .. replace
+			local _arg0 = e + 1
+			newSource = _exp .. string.sub(source, _arg0)
+			occurrences = 1
 		end
+		ScriptEditorService:UpdateSourceAsync(instance, function()
+			return newSource
+		end)
+		return {
+			success = true,
+			instancePath = instancePath,
+			occurrencesReplaced = occurrences,
+			replaceAll = replaceAll,
+			message = `Replaced {occurrences} occurrence(s)`,
+		}
+	end)
+	if success then
+		finishRecording(recordingId, true)
+		return result
 	end
-	local _object = {
-		results = results,
-		totalScripts = #results,
+	finishRecording(recordingId, false)
+	return {
+		error = `Failed to patch script: {result}`,
 	}
-	local _left = "scriptsWithErrors"
-	-- ▼ ReadonlyArray.filter ▼
-	local _newValue = {}
-	local _callback = function(r)
-		return r.hasErrors
-	end
-	local _length = 0
-	for _k, _v in results do
-		if _callback(_v, _k - 1, results) == true then
-			_length += 1
-			_newValue[_length] = _v
-		end
-	end
-	-- ▲ ReadonlyArray.filter ▲
-	_object[_left] = #_newValue
-	return _object
 end
 return {
 	getScriptSource = getScriptSource,
@@ -4748,106 +4549,43 @@ return {
 	editScriptLines = editScriptLines,
 	insertScriptLines = insertScriptLines,
 	deleteScriptLines = deleteScriptLines,
-	findAndReplaceInScripts = findAndReplaceInScripts,
-	getScriptAnalysis = getScriptAnalysis,
+	createScript = createScript,
+	getAllScripts = getAllScripts,
+	patchScript = patchScript,
 }
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="13">
+        <Item class="ModuleScript" referent="12">
           <Properties>
             <string name="Name">TestHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
-local _services = TS.import(script, script.Parent.Parent.Parent, "node_modules", "@rbxts", "services")
-local HttpService = _services.HttpService
-local LogService = _services.LogService
+local LogService = TS.import(script, script.Parent.Parent.Parent, "node_modules", "@rbxts", "services").LogService
 local StudioTestService = game:GetService("StudioTestService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 local STOP_SIGNAL = "__MCP_STOP__"
-local NAV_SIGNAL = "__MCP_NAV__"
-local NAV_RESULT = "__MCP_NAV_RESULT__"
 local testRunning = false
 local outputBuffer = {}
 local logConnection
 local testResult
 local testError
 local stopListenerScript
-local navResultCallback
-local function buildCommandListenerSource()
+local function buildStopListenerSource()
 	return `local LogService = game:GetService("LogService")\
 local StudioTestService = game:GetService("StudioTestService")\
-local PathfindingService = game:GetService("PathfindingService")\
-local Players = game:GetService("Players")\
-local HttpService = game:GetService("HttpService")\
-local NAV_SIG = "{NAV_SIGNAL}"\
-local NAV_RES = "{NAV_RESULT}"\
-LogService.MessageOut:Connect(function(msg)\
-	if msg == "{STOP_SIGNAL}" then\
+LogService.MessageOut:Connect(function(message)\
+	if message == "{STOP_SIGNAL}" then\
 		pcall(function() StudioTestService:EndTest("stopped_by_mcp") end)\
-	elseif string.sub(msg, 1, #NAV_SIG + 1) == NAV_SIG .. ":" then\
-		local json = string.sub(msg, #NAV_SIG + 2)\
-		task.spawn(function()\
-			local ok, d = pcall(function() return HttpService:JSONDecode(json) end)\
-			if not ok or not d then\
-				print(NAV_RES .. ':\{"success":false,"error":"parse_error"\}')\
-				return\
-			end\
-			local ps = Players:GetPlayers()\
-			if #ps == 0 then\
-				print(NAV_RES .. ':\{"success":false,"error":"no_players"\}')\
-				return\
-			end\
-			local char = ps[1].Character or ps[1].CharacterAdded:Wait()\
-			local hum = char:FindFirstChildOfClass("Humanoid")\
-			local root = char:FindFirstChild("HumanoidRootPart")\
-			if not hum or not root then\
-				print(NAV_RES .. ':\{"success":false,"error":"no_humanoid"\}')\
-				return\
-			end\
-			local target\
-			if d.instancePath then\
-				local parts = string.split(d.instancePath, ".")\
-				local cur = game\
-				for i = 2, #parts do\
-					cur = cur:FindFirstChild(parts[i])\
-					if not cur then\
-						print(NAV_RES .. ':\{"success":false,"error":"instance_not_found"\}')\
-						return\
-					end\
-				end\
-				if cur:IsA("BasePart") then target = cur.Position\
-				elseif cur:IsA("Model") and cur.PrimaryPart then target = cur.PrimaryPart.Position\
-				else target = cur:GetPivot().Position end\
-			else\
-				target = Vector3.new(d.x or 0, d.y or 0, d.z or 0)\
-			end\
-			local path = PathfindingService:CreatePath(\{AgentRadius=2,AgentHeight=5,AgentCanJump=true\})\
-			local pok = pcall(function() path:ComputeAsync(root.Position, target) end)\
-			local method = "direct"\
-			if pok and path.Status == Enum.PathStatus.Success then\
-				method = "pathfinding"\
-				for _, wp in ipairs(path:GetWaypoints()) do\
-					hum:MoveTo(wp.Position)\
-					if wp.Action == Enum.PathWaypointAction.Jump then hum.Jump = true end\
-					hum.MoveToFinished:Wait()\
-				end\
-			else\
-				hum:MoveTo(target)\
-				hum.MoveToFinished:Wait()\
-			end\
-			local fp = root.Position\
-			print(NAV_RES .. ':\{"success":true,"method":"' .. method .. '","position":[' .. fp.X .. ',' .. fp.Y .. ',' .. fp.Z .. ']\}')\
-		end)\
 	end\
 end)`
 end
 local function injectStopListener()
 	local listener = Instance.new("Script")
-	listener.Name = "__MCP_CommandListener"
+	listener.Name = "__MCP_StopListener"
 	listener.Parent = ServerScriptService
-	local source = buildCommandListenerSource()
+	local source = buildStopListenerSource()
 	local seOk = pcall(function()
 		ScriptEditorService:UpdateSourceAsync(listener, function()
 			return source
@@ -4868,7 +4606,6 @@ local function cleanupStopListener()
 end
 local function startPlaytest(requestData)
 	local mode = requestData.mode
-	local numPlayers = requestData.numPlayers
 	if mode ~= "play" and mode ~= "run" then
 		return {
 			error = 'mode must be "play" or "run"',
@@ -4888,22 +4625,6 @@ local function startPlaytest(requestData)
 		if message == STOP_SIGNAL then
 			return nil
 		end
-		local _message = message
-		local _arg1 = #NAV_SIGNAL
-		if string.sub(_message, 1, _arg1) == NAV_SIGNAL then
-			return nil
-		end
-		local _message_1 = message
-		local _arg1_1 = #NAV_RESULT + 1
-		if string.sub(_message_1, 1, _arg1_1) == `{NAV_RESULT}:` then
-			if navResultCallback then
-				local _fn = navResultCallback
-				local _message_2 = message
-				local _arg0 = #NAV_RESULT + 2
-				_fn(string.sub(_message_2, _arg0))
-			end
-			return nil
-		end
 		local _outputBuffer = outputBuffer
 		local _arg0 = {
 			message = message,
@@ -4917,10 +4638,6 @@ local function startPlaytest(requestData)
 	end)
 	if not injected then
 		warn(`[MCP] Failed to inject stop listener: {injErr}`)
-	end
-	if numPlayers ~= nil and mode == "run" then
-		local TestService = game:GetService("TestService")
-		TestService.NumberOfPlayers = math.clamp(numPlayers, 1, 8)
 	end
 	task.spawn(function()
 		local ok, result = pcall(function()
@@ -4941,42 +4658,29 @@ local function startPlaytest(requestData)
 		testRunning = false
 		cleanupStopListener()
 	end)
-	local msg = if numPlayers ~= nil then `Playtest started in {mode} mode with {numPlayers} player(s)` else `Playtest started in {mode} mode`
 	return {
 		success = true,
-		message = msg,
+		message = `Playtest started in {mode} mode`,
 	}
 end
 local function stopPlaytest(_requestData)
-	if testRunning then
-		warn(STOP_SIGNAL)
-		local _object = {
-			success = true,
-		}
-		local _left = "output"
-		local _array = {}
-		local _length = #_array
-		table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
-		_object[_left] = _array
-		_object.outputCount = #outputBuffer
-		_object.message = "Playtest stop signal sent."
-		return _object
-	end
-	local endTest = StudioTestService
-	local endOk = pcall(function()
-		endTest:EndTest("stopped_by_mcp")
-	end)
-	if endOk then
+	if not testRunning then
 		return {
-			success = true,
-			output = {},
-			outputCount = 0,
-			message = "Playtest stopped via StudioTestService.",
+			error = "No test is currently running",
 		}
 	end
-	return {
-		error = "No MCP-started test is running and direct stop failed. The playtest may have been started manually.",
+	warn(STOP_SIGNAL)
+	local _object = {
+		success = true,
 	}
+	local _left = "output"
+	local _array = {}
+	local _length = #_array
+	table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
+	_object[_left] = _array
+	_object.outputCount = #outputBuffer
+	_object.message = "Playtest stop signal sent."
+	return _object
 end
 local function getPlaytestOutput(_requestData)
 	local _object = {
@@ -4992,84 +4696,16 @@ local function getPlaytestOutput(_requestData)
 	_object.testError = testError
 	return _object
 end
-local function characterNavigation(requestData)
-	if not testRunning then
-		return {
-			error = "Playtest must be running. Start a playtest in 'play' mode first.",
-		}
-	end
-	local position = requestData.position
-	local instancePath = requestData.instancePath
-	local _condition = (requestData.waitForCompletion)
-	if _condition == nil then
-		_condition = true
-	end
-	local waitForCompletion = _condition
-	local _condition_1 = (requestData.timeout)
-	if _condition_1 == nil then
-		_condition_1 = 25
-	end
-	local timeout = _condition_1
-	if not position and not (instancePath ~= "" and instancePath) then
-		return {
-			error = "Either position [x, y, z] or instancePath is required",
-		}
-	end
-	local navData
-	if position then
-		navData = HttpService:JSONEncode({
-			x = position[1],
-			y = position[2],
-			z = position[3],
-		})
-	else
-		navData = HttpService:JSONEncode({
-			instancePath = instancePath,
-		})
-	end
-	warn(`{NAV_SIGNAL}:{navData}`)
-	if not waitForCompletion then
-		return {
-			success = true,
-			message = "Navigation command sent",
-		}
-	end
-	local result
-	navResultCallback = function(json)
-		result = json
-	end
-	local startTime = tick()
-	while not (result ~= "" and result) and tick() - startTime < timeout do
-		task.wait(0.2)
-	end
-	navResultCallback = nil
-	if result ~= "" and result then
-		local ok, parsed = pcall(function()
-			return HttpService:JSONDecode(result)
-		end)
-		if ok then
-			return parsed
-		end
-		return {
-			success = true,
-			rawResult = result,
-		}
-	end
-	return {
-		error = `Navigation timed out after {timeout} seconds`,
-	}
-end
 return {
 	startPlaytest = startPlaytest,
 	stopPlaytest = stopPlaytest,
 	getPlaytestOutput = getPlaytestOutput,
-	characterNavigation = characterNavigation,
 }
 ]]></string>
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="13">
         <Properties>
           <string name="Name">Recording</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5099,11 +4735,11 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="14">
         <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
-local CURRENT_VERSION = "2.6.0-next.8"
+local CURRENT_VERSION = "2.6.0"
 local MAX_CONNECTIONS = 5
 local BASE_PORT = 58741
 local activeTabIndex = 0
@@ -5121,7 +4757,6 @@ local function createConnection(port)
 		maxRetryDelay = 5,
 		retryBackoffMultiplier = 1.2,
 		lastHttpOk = false,
-		lastMcpOk = false,
 		mcpWaitStartTime = nil,
 		isPolling = false,
 		heartbeatConnection = nil,
@@ -5132,16 +4767,12 @@ local function addConnection(port)
 	if #connections >= MAX_CONNECTIONS then
 		return nil
 	end
-	if port == nil then
-		local maxPort = BASE_PORT - 1
-		for _, conn in connections do
-			if conn.port > maxPort then
-				maxPort = conn.port
-			end
-		end
-		port = maxPort + 1
+	local lastPort = connections[#connections].port
+	local _condition = port
+	if _condition == nil then
+		_condition = lastPort + 1
 	end
-	local conn = createConnection(port)
+	local conn = createConnection(_condition)
 	table.insert(connections, conn)
 	return #connections - 1
 end
@@ -5195,7 +4826,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">UI</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5406,15 +5037,6 @@ local function updateTabDot(connIndex)
 		tb.dot.BackgroundColor3 = getStatusDotColor(connIndex)
 	end
 end
-local function updateTabLabel(connIndex)
-	local conn = State.getConnection(connIndex)
-	local _tabButtons = tabButtons
-	local _connIndex = connIndex
-	local tb = _tabButtons[_connIndex]
-	if conn and tb and tb.label then
-		tb.label.Text = tostring(conn.port)
-	end
-end
 local function init(pluginRef)
 	local CURRENT_VERSION = State.CURRENT_VERSION
 	local screenGui = pluginRef:CreateDockWidgetPluginGuiAsync("MCPServerInterface", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, false, 300, 260, 260, 200))
@@ -5610,22 +5232,6 @@ local function init(pluginRef)
 	urlPadding.PaddingLeft = UDim.new(0, 8)
 	urlPadding.PaddingRight = UDim.new(0, 8)
 	urlPadding.Parent = urlInput
-	urlInput.FocusLost:Connect(function()
-		local conn = State.getActiveConnection()
-		if not conn or conn.isActive then
-			return nil
-		end
-		conn.serverUrl = urlInput.Text
-		local portStr = string.match(conn.serverUrl, ":(%d+)$")
-		if portStr ~= 0 and portStr == portStr and portStr ~= "" and portStr then
-			local _condition = tonumber(portStr)
-			if _condition == nil then
-				_condition = conn.port
-			end
-			conn.port = _condition
-		end
-		updateTabLabel(State.getActiveTabIndex())
-	end)
 	local statusRow = Instance.new("Frame")
 	statusRow.Size = UDim2.new(1, 0, 0, 14)
 	statusRow.BackgroundTransparency = 1
@@ -5788,7 +5394,29 @@ function updateUIState()
 		return nil
 	end
 	local el = elements
-	if not conn.isActive then
+	if conn.isActive then
+		el.statusLabel.Text = "Connecting..."
+		el.statusLabel.TextColor3 = C.yellow
+		el.statusIndicator.BackgroundColor3 = C.yellow
+		el.statusPulse.BackgroundColor3 = C.yellow
+		el.statusText.Text = "CONNECTING"
+		el.detailStatusLabel.Text = if conn.consecutiveFailures == 0 then "..." else "HTTP: X  MCP: X"
+		el.detailStatusLabel.TextColor3 = C.muted
+		startPulseAnimation()
+		el.step1Dot.BackgroundColor3 = C.yellow
+		el.step1Label.Text = "HTTP server (connecting...)"
+		el.step2Dot.BackgroundColor3 = C.yellow
+		el.step2Label.Text = "MCP bridge (connecting...)"
+		el.step3Dot.BackgroundColor3 = C.yellow
+		el.step3Label.Text = "Commands (connecting...)"
+		conn.mcpWaitStartTime = nil
+		el.troubleshootLabel.Visible = false
+		if not buttonHover then
+			setButtonDisconnect(el.connectButton, el.connectStroke)
+		end
+		el.urlInput.TextEditable = false
+		el.urlInput.BackgroundColor3 = C.card
+	else
 		el.statusLabel.Text = "Disconnected"
 		el.statusLabel.TextColor3 = C.muted
 		el.statusIndicator.BackgroundColor3 = C.red
@@ -5803,101 +5431,13 @@ function updateUIState()
 		el.step2Label.Text = "MCP bridge"
 		el.step3Dot.BackgroundColor3 = C.gray
 		el.step3Label.Text = "Commands"
+		conn.mcpWaitStartTime = nil
 		el.troubleshootLabel.Visible = false
 		if not buttonHover then
 			setButtonConnect(el.connectButton, el.connectStroke)
 		end
 		el.urlInput.TextEditable = true
 		el.urlInput.BackgroundColor3 = C.bg
-		return nil
-	end
-	if not buttonHover then
-		setButtonDisconnect(el.connectButton, el.connectStroke)
-	end
-	el.urlInput.TextEditable = false
-	el.urlInput.BackgroundColor3 = C.card
-	if conn.lastHttpOk and conn.lastMcpOk then
-		el.statusLabel.Text = "Connected"
-		el.statusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
-		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-		el.statusPulse.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-		el.statusText.Text = "ONLINE"
-		el.detailStatusLabel.Text = "HTTP: OK  MCP: OK"
-		el.detailStatusLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
-		el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-		el.step1Label.Text = "HTTP server (OK)"
-		el.step2Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-		el.step2Label.Text = "MCP bridge (OK)"
-		el.step3Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-		el.step3Label.Text = "Commands (OK)"
-		el.troubleshootLabel.Visible = false
-		stopPulseAnimation()
-	elseif conn.lastHttpOk and not conn.lastMcpOk then
-		el.statusLabel.Text = "Waiting for MCP server"
-		el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.statusText.Text = "WAITING"
-		el.detailStatusLabel.Text = "HTTP: OK  MCP: ..."
-		el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-		el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-		el.step1Label.Text = "HTTP server (OK)"
-		el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.step2Label.Text = "MCP bridge (waiting...)"
-		el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.step3Label.Text = "Commands (waiting...)"
-		local elapsed = if conn.mcpWaitStartTime ~= nil then tick() - conn.mcpWaitStartTime else 0
-		el.troubleshootLabel.Visible = elapsed > 8
-		startPulseAnimation()
-	elseif conn.consecutiveFailures >= conn.maxFailuresBeforeError then
-		el.statusLabel.Text = "Server unavailable"
-		el.statusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
-		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-		el.statusPulse.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-		el.statusText.Text = "ERROR"
-		el.detailStatusLabel.Text = "HTTP: X  MCP: X"
-		el.detailStatusLabel.TextColor3 = Color3.fromRGB(239, 68, 68)
-		el.step1Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-		el.step1Label.Text = "HTTP server (error)"
-		el.step2Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-		el.step2Label.Text = "MCP bridge (error)"
-		el.step3Dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-		el.step3Label.Text = "Commands (error)"
-		el.troubleshootLabel.Visible = false
-		stopPulseAnimation()
-	elseif conn.consecutiveFailures > 5 then
-		local waitTime = math.ceil(conn.currentRetryDelay)
-		el.statusLabel.Text = `Retrying ({waitTime}s)`
-		el.statusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-		el.statusIndicator.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.statusPulse.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.statusText.Text = "RETRY"
-		el.detailStatusLabel.Text = "HTTP: ...  MCP: ..."
-		el.detailStatusLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
-		el.step1Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.step1Label.Text = "HTTP server (retrying...)"
-		el.step2Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.step2Label.Text = "MCP bridge (retrying...)"
-		el.step3Dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
-		el.step3Label.Text = "Commands (retrying...)"
-		el.troubleshootLabel.Visible = false
-		startPulseAnimation()
-	else
-		el.statusLabel.Text = if conn.consecutiveFailures > 1 then `Connecting (attempt {conn.consecutiveFailures})` else "Connecting..."
-		el.statusLabel.TextColor3 = C.yellow
-		el.statusIndicator.BackgroundColor3 = C.yellow
-		el.statusPulse.BackgroundColor3 = C.yellow
-		el.statusText.Text = "CONNECTING"
-		el.detailStatusLabel.Text = if conn.consecutiveFailures == 0 then "..." else "HTTP: ...  MCP: ..."
-		el.detailStatusLabel.TextColor3 = C.muted
-		el.step1Dot.BackgroundColor3 = C.yellow
-		el.step1Label.Text = "HTTP server (connecting...)"
-		el.step2Dot.BackgroundColor3 = C.yellow
-		el.step2Label.Text = "MCP bridge (connecting...)"
-		el.step3Dot.BackgroundColor3 = C.yellow
-		el.step3Label.Text = "Commands (connecting...)"
-		el.troubleshootLabel.Visible = false
-		startPulseAnimation()
 	end
 end
 return {
@@ -5905,7 +5445,6 @@ return {
 	init = init,
 	updateUIState = updateUIState,
 	updateTabDot = updateTabDot,
-	updateTabLabel = updateTabLabel,
 	stopPulseAnimation = stopPulseAnimation,
 	startPulseAnimation = startPulseAnimation,
 	getElements = function()
@@ -5915,7 +5454,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">Utils</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6445,11 +5984,11 @@ return {
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="21">
+    <Item class="Folder" referent="20">
       <Properties>
         <string name="Name">include</string>
       </Properties>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">Promise</string>
           <string name="Source"><![CDATA[--[[
@@ -8523,7 +8062,7 @@ return Promise
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">RuntimeLib</string>
           <string name="Source"><![CDATA[local Promise = require(script.Parent.Promise)
@@ -8790,15 +8329,15 @@ return TS
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="22">
+    <Item class="Folder" referent="21">
       <Properties>
         <string name="Name">node_modules</string>
       </Properties>
-      <Item class="Folder" referent="23">
+      <Item class="Folder" referent="22">
         <Properties>
           <string name="Name">@rbxts</string>
         </Properties>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">services</string>
           <string name="Source"><![CDATA[return setmetatable({}, {

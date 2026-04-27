@@ -505,7 +505,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_script_source',
     category: 'read',
-    description: 'Get script source. Returns "source" and "numberedSource" (line-numbered). Use startLine/endLine for large scripts.',
+    description: 'Get script source with line numbers. Use startLine/endLine for large scripts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -801,7 +801,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'grep_scripts',
     category: 'read',
-    description: 'Ripgrep-inspired search across all script sources. Supports literal and Lua pattern matching, context lines, early termination, and results grouped by script with line/column numbers.',
+    description: 'Search all script sources (literal or Lua pattern). Results grouped by script with line/column.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -823,7 +823,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         maxResults: {
           type: 'number',
-          description: 'Max total matches before stopping (default: 100)'
+          description: 'Max total matches before stopping (default: 30)'
         },
         maxResultsPerScript: {
           type: 'number',
@@ -927,7 +927,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'export_build',
     category: 'read',
-    description: 'Export a Model/Folder into a compact, token-efficient build JSON format and auto-save it to the local build library. The output contains a palette (unique BrickColor+Material combos mapped to short keys) and compact part arrays with positions normalized relative to the bounding box center. The file is saved to build-library/{style}/{id}.json automatically.',
+    description: 'Export a Model/Folder to compact build JSON in the local library (build-library/{style}/{id}.json). Output has a palette (BrickColor+Material → short keys) and parts with positions relative to bounding box center.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -951,7 +951,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'create_build',
     category: 'write',
-    description: 'Create a new build model from scratch and save it to the library. Define parts using compact arrays [posX, posY, posZ, sizeX, sizeY, sizeZ, rotX, rotY, rotZ, paletteKey, shape?, transparency?]. Palette maps short keys to [BrickColor, Material] pairs. The build is saved and can be referenced by import_build or import_scene.',
+    description: 'Create a build from scratch and save to the library. Parts: object form {position,size,rotation,paletteKey,shape?,transparency?} or tuple [posX,posY,posZ,sizeX,sizeY,sizeZ,rotX,rotY,rotZ,paletteKey,shape?,transparency?]. Palette maps keys to [BrickColor, Material] pairs.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -966,7 +966,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         palette: {
           type: 'object',
-          description: 'Map of short keys to [BrickColor, Material] or [BrickColor, Material, MaterialVariant] tuples. E.g. {"a": ["Dark stone grey", "Concrete"], "b": ["Brown", "Wood", "MyCustomWood"]}'
+          description: 'Keys → [BrickColor, Material] or [BrickColor, Material, MaterialVariant]. Example: {"a":["Dark stone grey","Concrete"],"b":["Brown","Wood","MyCustomWood"]}'
         },
         parts: {
           type: 'array',
@@ -1006,46 +1006,33 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'generate_build',
     category: 'write',
-    description: `Procedurally generate a build via JS code. ALWAYS generate the entire scene in ONE call — never split into multiple small builds. PREFER high-level primitives over manual loops. No comments. No unnecessary variables. Maximize build detail per line.
+    description: `Procedurally generate a build via JS code. Generate the entire scene in ONE call. Prefer high-level primitives over manual loops. No comments, no extra vars.
+EDITING: call get_build first, then change only what the user asked.
 
-EDITING: When modifying an existing build, call get_build first to retrieve the original code. Then make ONLY the targeted changes the user requested — do not rewrite unchanged code. Pass the modified code to generate_build.
-
-HIGH-LEVEL (use these first — each replaces 5-20 lines):
-  room(x,y,z, w,h,d, wallKey, floorKey?, ceilKey?, wallThickness?) - Complete enclosed room (floor+ceiling+4 walls)
-  roof(x,y,z, w,d, style, key, overhang?) - style: "flat"|"gable"|"hip"
-  stairs(x1,y1,z1, x2,y2,z2, width, key) - Auto-generates steps between two points
-  column(x,y,z, height, radius, key, capKey?) - Cylinder with base+capital
-  pew(x,y,z, w,d, seatKey, legKey?) - Bench with seat+backrest+legs
-  arch(x,y,z, w,h, thickness, key, segments?) - Curved archway
-  fence(x1,z1, x2,z2, y, key, postSpacing?) - Fence with posts+rails
+HIGH-LEVEL (each replaces 5-20 lines):
+  room(x,y,z,w,h,d,wallKey,floorKey?,ceilKey?,wallThickness?) — floor+ceiling+4 walls
+  roof(x,y,z,w,d,style,key,overhang?) — style: "flat"|"gable"|"hip"
+  stairs(x1,y1,z1,x2,y2,z2,width,key) — steps between two points
+  column(x,y,z,height,radius,key,capKey?)
+  pew(x,y,z,w,d,seatKey,legKey?)
+  arch(x,y,z,w,h,thickness,key,segments?)
+  fence(x1,z1,x2,z2,y,key,postSpacing?)
 
 BASIC:
-  part(x,y,z, sx,sy,sz, key, shape?, transparency?)
-  rpart(x,y,z, sx,sy,sz, rx,ry,rz, key, shape?, transparency?)
-  wall(x1,z1, x2,z2, height, thickness, key) — vertical plane from (x1,z1) to (x2,z2)
-  floor(x1,z1, x2,z2, y, thickness, key) — horizontal plane at height y, corners (x1,z1)-(x2,z2). NOT fill — only takes 2D corners+y, not 3D points
-  fill(x1,y1,z1, x2,y2,z2, key, [ux,uy,uz]?) — 3D volume between two 3D points
-  beam(x1,y1,z1, x2,y2,z2, thickness, key)
-
-IMPORTANT: Palette keys must match exactly. Use only keys defined in your palette object, not color names.
-CUSTOM MATERIALS: Use search_materials to find MaterialVariant names, then reference them as the 3rd palette element: {"a": ["Color", "BaseMaterial", "VariantName"]}.
+  part(x,y,z,sx,sy,sz,key,shape?,transparency?)
+  rpart(x,y,z,sx,sy,sz,rx,ry,rz,key,shape?,transparency?)
+  wall(x1,z1,x2,z2,height,thickness,key) — vertical plane
+  floor(x1,z1,x2,z2,y,thickness,key) — horizontal plane (2D corners + y)
+  fill(x1,y1,z1,x2,y2,z2,key,[ux,uy,uz]?) — 3D volume between two points
+  beam(x1,y1,z1,x2,y2,z2,thickness,key)
 
 REPETITION:
-  row(x,y,z, count, spacingX, spacingZ, fn(i,cx,cy,cz))
-  grid(x,y,z, countX, countZ, spacingX, spacingZ, fn(ix,iz,cx,cy,cz))
+  row(x,y,z,count,spacingX,spacingZ,fn(i,cx,cy,cz))
+  grid(x,y,z,countX,countZ,spacingX,spacingZ,fn(ix,iz,cx,cy,cz))
 
 Shapes: Block(default), Wedge, Cylinder, Ball, CornerWedge. Max 10000 parts. Math and rng() available.
-CYLINDER AXIS: Roblox cylinders extend along the X axis. For upright cylinders, use size (height, diameter, diameter) with rz=90. The column() primitive handles this automatically.
-
-EXAMPLE — compact cabin (17 lines):
-room(0,0,0,8,4,6,"a","b","a")
-roof(0,4,0,8,6,"gable","c")
-wall(-4,0,-2,4,0,-2,4,1,"a")
-part(0,2,3,3,3,0.3,"a","Block",0.4)
-row(-2,0,-1,3,0,2,(i,cx,cy,cz)=>{pew(cx,0,cz,3,2,"d")})
-column(-3,0,-2,4,0.5,"a","b")
-column(3,0,-2,4,0.5,"a","b")
-part(0,2,0,2,1,1,"b")`,
+Palette keys must match exactly (no raw color names). Cylinders extend along X — for upright use size (h,d,d) with rz=90 (column() handles this).
+Custom materials: search_materials → use as 3rd palette element {"a":["Color","BaseMaterial","VariantName"]}.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1060,7 +1047,7 @@ part(0,2,0,2,1,1,"b")`,
         },
         palette: {
           type: 'object',
-          description: 'Map of short keys to [BrickColor, Material] or [BrickColor, Material, MaterialVariant] tuples. E.g. {"a": ["Dark stone grey", "Cobblestone"], "b": ["Brown", "WoodPlanks", "MyCustomWood"]}. MaterialVariant is optional — use it to reference custom materials from MaterialService.'
+          description: 'Keys → [BrickColor, Material] or [BrickColor, Material, MaterialVariant]. MaterialVariant references MaterialService entries (find via search_materials).'
         },
         code: {
           type: 'string',
