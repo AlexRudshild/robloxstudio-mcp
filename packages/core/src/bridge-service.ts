@@ -89,7 +89,10 @@ export class BridgeService {
       const timeoutId = setTimeout(() => {
         if (this.pendingRequests.has(requestId)) {
           this.pendingRequests.delete(requestId);
-          reject(new Error('Request timeout'));
+          const err = new Error(`Request timeout: target "${target}" did not respond within ${this.requestTimeout}ms. Plugin may be unresponsive or target disconnected.`) as Error & { errorCode?: string; retryable?: boolean };
+          err.errorCode = 'timeout';
+          err.retryable = true;
+          reject(err);
         }
       }, this.requestTimeout);
 

@@ -199,13 +199,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_project_structure',
     category: 'read',
-    description: 'Get full game hierarchy tree. Increase maxDepth (default 3) for deeper traversal.',
+    description: 'Get full game hierarchy tree. Increase maxDepth (default 3) for deeper traversal. Pass knownHash from a prior call to dedup unchanged trees (returns {unchanged:true, hash}).',
     inputSchema: {
       type: 'object',
       properties: {
-        path: {
+        instancePath: {
           type: 'string',
-          description: 'Root path (default: workspace root)'
+          description: 'Root instance path (dot notation, e.g. "game.Workspace"). Default: service overview.'
         },
         maxDepth: {
           type: 'number',
@@ -214,6 +214,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         scriptsOnly: {
           type: 'boolean',
           description: 'Show only scripts (default: false)'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from a prior response. If unchanged, returns {unchanged:true, hash} instead of full tree.'
         }
       }
     }
@@ -709,7 +713,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'get_attributes',
     feature: 'metadata',
     category: 'read',
-    description: 'Get attributes on an instance. Pass attributeName to read just that one (returns {value}); omit to return all attributes as a map.',
+    description: 'Get attributes on an instance. Pass attributeName to read just that one (returns {value}); omit to return all attributes as a map. Pass knownHash to dedup unchanged maps.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -720,6 +724,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         attributeName: {
           type: 'string',
           description: 'Optional. If provided, returns just that attribute; otherwise returns all.'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from prior call. If unchanged, returns {unchanged:true, hash}. Only applies when attributeName is omitted.'
         }
       },
       required: ['instancePath']
@@ -906,7 +914,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'start_playtest',
     feature: 'playtest',
-    category: 'read',
+    category: 'write',
     description: 'Start playtest. Captures print/warn/error via LogService. Poll with get_playtest_output, end with stop_playtest. Use numPlayers for multi-client testing (server + N clients).',
     inputSchema: {
       type: 'object',
@@ -927,7 +935,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'stop_playtest',
     feature: 'playtest',
-    category: 'read',
+    category: 'write',
     description: 'Stop playtest and return all captured output.',
     inputSchema: {
       type: 'object',

@@ -206,11 +206,12 @@ export class RobloxStudioTools {
     };
   }
 
-  async getProjectStructure(path?: string, maxDepth?: number, scriptsOnly?: boolean) {
+  async getProjectStructure(instancePath?: string, maxDepth?: number, scriptsOnly?: boolean, knownHash?: string) {
     const response = await this.client.request('/api/project-structure', {
-      path,
+      instancePath,
       maxDepth,
-      scriptsOnly
+      scriptsOnly,
+      knownHash,
     });
     return {
       content: [
@@ -425,50 +426,16 @@ export class RobloxStudioTools {
       return { content: [{ type: 'text', text: JSON.stringify({ unchanged: true, hash: response.hash }) }] };
     }
 
-    const scriptTypeInfo: Record<string, string> = {
-      'Script': 'Server Script, runs on the server only',
-      'LocalScript': 'Local Script, runs on the client',
-      'ModuleScript': 'Module Script, shared library loaded via require()',
-    };
-
-    const serviceInfo: Record<string, string> = {
-      'Workspace': 'Workspace, 3D world replicated to all clients',
-      'ServerScriptService': 'ServerScriptService, server only',
-      'ServerStorage': 'ServerStorage, server only storage',
-      'StarterGui': 'StarterGui, UI templates copied to each player',
-      'StarterPlayerScripts': 'StarterPlayerScripts, client scripts',
-      'StarterCharacterScripts': 'StarterCharacterScripts, character scripts',
-      'ReplicatedStorage': 'ReplicatedStorage, shared server and client',
-      'ReplicatedFirst': 'ReplicatedFirst, first to load on client',
-    };
-
     const pathStr = (response.instancePath as string) || instancePath;
-    const pathSegments = pathStr.split('.');
-    const topService =
-      typeof response.topService === 'string' && response.topService.length > 0
-        ? response.topService
-        : pathSegments[0] === 'game' ? (pathSegments[1] ?? 'game') : pathSegments[0];
-    const typeNote = scriptTypeInfo[response.className as string] || (response.className as string);
-    const serviceNote = serviceInfo[topService] || topService;
-
-    const headerLines: string[] = [
-      `Path:     ${pathStr}`,
-      `Type:     ${typeNote}`,
-      `Location: ${serviceNote}`,
-      `Lines:    ${response.lineCount} total${
-        response.isPartial ? ` (showing ${response.startLine}-${response.endLine})` : ''
-      }`,
+    const headerParts: string[] = [
+      `Path: ${pathStr}`,
+      `Class: ${response.className}`,
+      `Lines: ${response.lineCount}${response.isPartial ? ` (showing ${response.startLine}-${response.endLine})` : ''}`,
     ];
+    if (response.enabled === false) headerParts.push('DISABLED');
+    if (response.truncated) headerParts.push('TRUNCATED@1000 (use startLine/endLine)');
+    if (response.hash) headerParts.push(`hash: ${response.hash}`);
 
-    if (response.enabled === false) {
-      headerLines.push(`Status:   DISABLED`);
-    }
-
-    if (response.truncated) {
-      headerLines.push(`Note:     Truncated to first 1000 lines, use startLine/endLine to read more`);
-    }
-
-    const header = headerLines.join('\n');
     const sourceText = (response.source as string) ?? '';
     const offset = (response.startLine as number) ?? 1;
     const code = sourceText
@@ -479,7 +446,7 @@ export class RobloxStudioTools {
     return {
       content: [{
         type: 'text',
-        text: `${header}\n\n${code}`,
+        text: `${headerParts.join(' | ')}\n\n${code}`,
       }]
     };
   }
@@ -605,12 +572,14 @@ export class RobloxStudioTools {
     };
   }
 
-  async getAttributes(instancePath: string, attributeName?: string) {
+  async getAttributes(instancePath: string, attributeName?: string, knownHash?: string) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_attributes');
     }
     const endpoint = attributeName ? '/api/get-attribute' : '/api/get-attributes';
-    const body = attributeName ? { instancePath, attributeName } : { instancePath };
+    const body: Record<string, unknown> = attributeName
+      ? { instancePath, attributeName }
+      : { instancePath, knownHash };
     const response = await this.client.request(endpoint, body);
     return {
       content: [
@@ -714,7 +683,22 @@ export class RobloxStudioTools {
     if (!code) {
       throw new Error('Code is required for execute_luau');
     }
-    const response = await this.client.request('/api/execute-luau', { code }, target || 'edit');
+    const resolvedTarget = target || 'edit';
+    const instances = this.bridge.getInstances();
+    const availableRoles = instances.map(i => i.role);
+    if (!availableRoles.includes(resolvedTarget)) {
+      const errorPayload = {
+        success: false,
+        errorCode: 'target_not_connected',
+        error: `Target "${resolvedTarget}" is not connected. Available targets: [${availableRoles.join(', ')}]. ${availableRoles.includes('edit') && resolvedTarget !== 'edit' ? 'For playtest targets (server, client-N), call start_playtest first.' : 'Ensure the Studio plugin is running.'}`,
+        availableTargets: availableRoles,
+        retryable: false,
+      };
+      return {
+        content: [{ type: 'text', text: JSON.stringify(errorPayload) }],
+      };
+    }
+    const response = await this.client.request('/api/execute-luau', { code }, resolvedTarget);
     return {
       content: [
         {

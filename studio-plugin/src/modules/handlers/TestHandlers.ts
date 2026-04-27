@@ -119,11 +119,11 @@ function startPlaytest(requestData: Record<string, unknown>) {
 	const numPlayers = requestData.numPlayers as number | undefined;
 
 	if (mode !== "play" && mode !== "run") {
-		return { error: 'mode must be "play" or "run"' };
+		return { error: 'mode must be "play" or "run"', errorCode: "invalid_arg", argName: "mode" };
 	}
 
 	if (testRunning) {
-		return { error: "A test is already running" };
+		return { error: "A test is already running", errorCode: "test_in_progress", retryable: false };
 	}
 
 	testRunning = true;
@@ -212,7 +212,7 @@ function stopPlaytest(_requestData: Record<string, unknown>) {
 		};
 	}
 
-	return { error: "No MCP-started test is running and direct stop failed. The playtest may have been started manually." };
+	return { error: "No MCP-started test is running and direct stop failed. The playtest may have been started manually.", errorCode: "no_test_running" };
 }
 
 function getPlaytestOutput(_requestData: Record<string, unknown>) {
@@ -227,7 +227,7 @@ function getPlaytestOutput(_requestData: Record<string, unknown>) {
 
 function characterNavigation(requestData: Record<string, unknown>) {
 	if (!testRunning) {
-		return { error: "Playtest must be running. Start a playtest in 'play' mode first." };
+		return { error: "Playtest must be running. Start a playtest in 'play' mode first.", errorCode: "no_test_running" };
 	}
 
 	const position = requestData.position as number[] | undefined;
@@ -236,7 +236,7 @@ function characterNavigation(requestData: Record<string, unknown>) {
 	const timeout = (requestData.timeout as number) ?? 25;
 
 	if (!position && !instancePath) {
-		return { error: "Either position [x, y, z] or instancePath is required" };
+		return { error: "Either position [x, y, z] or instancePath is required", errorCode: "missing_arg" };
 	}
 
 	let navData: string;
@@ -268,7 +268,7 @@ function characterNavigation(requestData: Record<string, unknown>) {
 		if (ok) return parsed;
 		return { success: true, rawResult: result };
 	}
-	return { error: `Navigation timed out after ${timeout} seconds` };
+	return { error: `Navigation timed out after ${timeout} seconds`, errorCode: "timeout", retryable: true };
 }
 
 export = {

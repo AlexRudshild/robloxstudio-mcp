@@ -22,13 +22,59 @@ function getDefaultInstance(className: string): Instance | undefined {
 }
 
 function formatPropValue(val: unknown): unknown {
-	if (typeOf(val) === "UDim2") {
+	const t = typeOf(val);
+	if (t === "boolean" || t === "number" || t === "string" || t === "nil") return val;
+	if (t === "UDim2") {
 		const udim = val as UDim2;
 		return {
 			X: { Scale: udim.X.Scale, Offset: udim.X.Offset },
 			Y: { Scale: udim.Y.Scale, Offset: udim.Y.Offset },
 			_type: "UDim2",
 		};
+	}
+	if (t === "Vector3") {
+		const v = val as Vector3;
+		return { X: v.X, Y: v.Y, Z: v.Z, _type: "Vector3" };
+	}
+	if (t === "Vector2") {
+		const v = val as Vector2;
+		return { X: v.X, Y: v.Y, _type: "Vector2" };
+	}
+	if (t === "Color3") {
+		const c = val as Color3;
+		return { R: c.R, G: c.G, B: c.B, _type: "Color3" };
+	}
+	if (t === "UDim") {
+		const u = val as UDim;
+		return { Scale: u.Scale, Offset: u.Offset, _type: "UDim" };
+	}
+	if (t === "CFrame") {
+		const cf = val as CFrame;
+		const [x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22] = cf.GetComponents();
+		return {
+			Position: { X: x, Y: y, Z: z },
+			Rotation: [r00, r01, r02, r10, r11, r12, r20, r21, r22],
+			_type: "CFrame",
+		};
+	}
+	if (t === "BrickColor") {
+		const bc = val as BrickColor;
+		return { Name: bc.Name, _type: "BrickColor" };
+	}
+	if (t === "EnumItem") {
+		const e = val as EnumItem;
+		return { Name: e.Name, EnumType: tostring(e.EnumType), Value: e.Value, _type: "EnumItem" };
+	}
+	if (t === "Instance") {
+		return { Path: getInstancePath(val as Instance), _type: "Instance" };
+	}
+	if (t === "NumberRange") {
+		const nr = val as NumberRange;
+		return { Min: nr.Min, Max: nr.Max, _type: "NumberRange" };
+	}
+	if (t === "Rect") {
+		const r = val as Rect;
+		return { Min: { X: r.Min.X, Y: r.Min.Y }, Max: { X: r.Max.X, Y: r.Max.Y }, _type: "Rect" };
 	}
 	return tostring(val);
 }
@@ -37,12 +83,32 @@ function serializePropForHash(val: unknown): string {
 	if (val === undefined) return "nil";
 	if (typeIs(val, "table")) {
 		const t = val as Record<string, unknown>;
-		if (t._type === "UDim2") {
+		const typeTag = t._type as string | undefined;
+		if (typeTag === undefined) return "table";
+		if (typeTag === "UDim2") {
 			const x = t.X as Record<string, number>;
 			const y = t.Y as Record<string, number>;
 			return `UDim2(${x.Scale},${x.Offset},${y.Scale},${y.Offset})`;
 		}
-		return "table";
+		if (typeTag === "Vector3") return `V3(${t.X},${t.Y},${t.Z})`;
+		if (typeTag === "Vector2") return `V2(${t.X},${t.Y})`;
+		if (typeTag === "Color3") return `C3(${t.R},${t.G},${t.B})`;
+		if (typeTag === "UDim") return `UDim(${t.Scale},${t.Offset})`;
+		if (typeTag === "CFrame") {
+			const p = t.Position as Record<string, number>;
+			const r = t.Rotation as number[];
+			return `CFrame(${p.X},${p.Y},${p.Z},${r.join(",")})`;
+		}
+		if (typeTag === "BrickColor") return `BrickColor(${t.Name})`;
+		if (typeTag === "EnumItem") return `Enum(${t.EnumType}.${t.Name})`;
+		if (typeTag === "Instance") return `Instance(${t.Path})`;
+		if (typeTag === "NumberRange") return `NumberRange(${t.Min},${t.Max})`;
+		if (typeTag === "Rect") {
+			const min = t.Min as Record<string, number>;
+			const max = t.Max as Record<string, number>;
+			return `Rect(${min.X},${min.Y},${max.X},${max.Y})`;
+		}
+		return `${typeTag}-table`;
 	}
 	return tostring(val);
 }
@@ -76,7 +142,7 @@ function getFileTree(requestData: Record<string, unknown>) {
 	const startInstance = getInstanceByPath(path);
 
 	if (!startInstance) {
-		return { error: `Path not found: ${path}` };
+		return { error: `Path not found: ${path}. Paths use dot-notation starting with 'game' (e.g. 'game.Workspace.Folder').`, errorCode: "path_not_found", path };
 	}
 
 	function buildTree(instance: Instance, depth: number): TreeNode {
@@ -116,7 +182,7 @@ function searchFiles(requestData: Record<string, unknown>) {
 	const query = requestData.query as string;
 	const searchType = (requestData.searchType as string) ?? "name";
 
-	if (!query) return { error: "Query is required" };
+	if (!query) return { error: "Query is required", errorCode: "missing_arg", argName: "query" };
 
 	const results: { name: string; className: string; path: string; hasSource: boolean; enabled?: boolean }[] = [];
 
@@ -182,7 +248,7 @@ function getServices(requestData: Record<string, unknown>) {
 				},
 			};
 		} else {
-			return { error: `Service not found: ${serviceName}` };
+			return { error: `Service not found: ${serviceName}`, errorCode: "service_not_found", serviceName };
 		}
 	} else {
 		const services: { name: string; className: string; path: string; childCount: number }[] = [];
@@ -213,7 +279,7 @@ function searchObjects(requestData: Record<string, unknown>) {
 	const searchType = (requestData.searchType as string) ?? "name";
 	const propertyName = requestData.propertyName as string | undefined;
 
-	if (!query) return { error: "Query is required" };
+	if (!query) return { error: "Query is required", errorCode: "missing_arg", argName: "query" };
 
 	const results: { name: string; className: string; path: string }[] = [];
 
@@ -254,10 +320,10 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 	const excludeSource = (requestData.excludeSource as boolean) ?? false;
 	const requestedMode = (requestData.mode as string) ?? "delta";
 	const knownHash = requestData.knownHash as string | undefined;
-	if (!instancePath) return { error: "Instance path is required" };
+	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
 
 	const defaultInstance = requestedMode === "delta" ? getDefaultInstance(instance.ClassName) : undefined;
 	const effectiveMode = defaultInstance !== undefined ? "delta" : "full";
@@ -306,27 +372,31 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 				properties.LineCount = Utils.splitLines(src)[0].size();
 			}
 			if (instance.IsA("BaseScript")) {
-				properties.Enabled = tostring(instance.Enabled);
+				properties.Enabled = instance.Enabled;
+				const [okRunCtx, runCtx] = pcall(() => (instance as unknown as Record<string, unknown>).RunContext);
+				if (okRunCtx && runCtx !== undefined) {
+					properties.RunContext = formatPropValue(runCtx);
+				}
 			}
 		}
 
 		const classSpecific: Array<[boolean, string, () => unknown]> = [
-			[instance.IsA("Part"), "Shape", () => tostring((instance as Part).Shape)],
-			[instance.IsA("BasePart"), "TopSurface", () => tostring((instance as BasePart).TopSurface)],
-			[instance.IsA("BasePart"), "BottomSurface", () => tostring((instance as BasePart).BottomSurface)],
-			[instance.IsA("MeshPart"), "MeshId", () => tostring((instance as MeshPart).MeshId)],
-			[instance.IsA("MeshPart"), "TextureID", () => tostring((instance as MeshPart).TextureID)],
-			[instance.IsA("SpecialMesh"), "MeshId", () => tostring((instance as SpecialMesh).MeshId)],
-			[instance.IsA("SpecialMesh"), "TextureId", () => tostring((instance as SpecialMesh).TextureId)],
-			[instance.IsA("SpecialMesh"), "MeshType", () => tostring((instance as SpecialMesh).MeshType)],
-			[instance.IsA("Sound"), "SoundId", () => tostring((instance as Sound).SoundId)],
-			[instance.IsA("Sound"), "TimeLength", () => tostring((instance as Sound).TimeLength)],
-			[instance.IsA("Sound"), "IsPlaying", () => tostring((instance as Sound).IsPlaying)],
-			[instance.IsA("Animation"), "AnimationId", () => tostring((instance as Animation).AnimationId)],
-			[instance.IsA("Decal") || instance.IsA("Texture"), "Texture", () => tostring((instance as Decal | Texture).Texture)],
-			[instance.IsA("Shirt"), "ShirtTemplate", () => tostring((instance as Shirt).ShirtTemplate)],
-			[instance.IsA("Pants"), "PantsTemplate", () => tostring((instance as Pants).PantsTemplate)],
-			[instance.IsA("ShirtGraphic"), "Graphic", () => tostring((instance as ShirtGraphic).Graphic)],
+			[instance.IsA("Part"), "Shape", () => formatPropValue((instance as Part).Shape)],
+			[instance.IsA("BasePart"), "TopSurface", () => formatPropValue((instance as BasePart).TopSurface)],
+			[instance.IsA("BasePart"), "BottomSurface", () => formatPropValue((instance as BasePart).BottomSurface)],
+			[instance.IsA("MeshPart"), "MeshId", () => (instance as MeshPart).MeshId],
+			[instance.IsA("MeshPart"), "TextureID", () => (instance as MeshPart).TextureID],
+			[instance.IsA("SpecialMesh"), "MeshId", () => (instance as SpecialMesh).MeshId],
+			[instance.IsA("SpecialMesh"), "TextureId", () => (instance as SpecialMesh).TextureId],
+			[instance.IsA("SpecialMesh"), "MeshType", () => formatPropValue((instance as SpecialMesh).MeshType)],
+			[instance.IsA("Sound"), "SoundId", () => (instance as Sound).SoundId],
+			[instance.IsA("Sound"), "TimeLength", () => (instance as Sound).TimeLength],
+			[instance.IsA("Sound"), "IsPlaying", () => (instance as Sound).IsPlaying],
+			[instance.IsA("Animation"), "AnimationId", () => (instance as Animation).AnimationId],
+			[instance.IsA("Decal") || instance.IsA("Texture"), "Texture", () => (instance as Decal | Texture).Texture],
+			[instance.IsA("Shirt"), "ShirtTemplate", () => (instance as Shirt).ShirtTemplate],
+			[instance.IsA("Pants"), "PantsTemplate", () => (instance as Pants).PantsTemplate],
+			[instance.IsA("ShirtGraphic"), "Graphic", () => (instance as ShirtGraphic).Graphic],
 		];
 
 		for (const [applies, prop, getter] of classSpecific) {
@@ -346,11 +416,11 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 
 		const childCount = instance.GetChildren().size();
 		if (childCount > 0) {
-			properties.ChildCount = tostring(childCount);
+			properties.ChildCount = childCount;
 		} else if (effectiveMode === "delta") {
 			omittedDefaultCount++;
 		} else {
-			properties.ChildCount = "0";
+			properties.ChildCount = 0;
 		}
 	});
 
@@ -366,20 +436,27 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 			mode: effectiveMode,
 			hash,
 		};
-		if (effectiveMode === "delta") resp.omittedDefaultCount = omittedDefaultCount;
+		if (effectiveMode === "delta") {
+			resp.omittedDefaultCount = omittedDefaultCount;
+			if (omittedDefaultCount === 0) {
+				resp.deltaNote = "all properties shown (no defaults matched)";
+			}
+		} else if (requestedMode === "delta") {
+			resp.deltaNote = "delta unavailable for this className; full mode used";
+		}
 		return resp;
 	} else {
-		return { error: `Failed to get properties: ${result}` };
+		return { error: `Failed to get properties: ${result}`, errorCode: "property_read_failed", instancePath };
 	}
 }
 
 function getInstanceChildren(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	const knownHash = requestData.knownHash as string | undefined;
-	if (!instancePath) return { error: "Instance path is required" };
+	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
 
 	const children: { name: string; className: string; path: string; hasChildren: boolean; hasSource: boolean; enabled?: boolean }[] = [];
 	const hashParts: Array<string | number | boolean> = ["instance-children", instancePath];
@@ -413,7 +490,7 @@ function searchByProperty(requestData: Record<string, unknown>) {
 	const propertyValue = requestData.propertyValue as string;
 
 	if (!propertyName || !propertyValue) {
-		return { error: "Property name and value are required" };
+		return { error: "Property name and value are required", errorCode: "missing_arg" };
 	}
 
 	const results: { name: string; className: string; path: string; propertyValue: string }[] = [];
@@ -437,10 +514,27 @@ function searchByProperty(requestData: Record<string, unknown>) {
 	return { propertyName, propertyValue, results, count: results.size() };
 }
 
+function hashTree(node: Record<string, unknown>): string {
+	const parts: Array<string | number | boolean> = [];
+	function walk(n: Record<string, unknown>) {
+		parts.push(tostring(n.path ?? ""));
+		parts.push(tostring(n.className ?? ""));
+		parts.push(tostring(n.name ?? ""));
+		const kids = n.children as Record<string, unknown>[] | undefined;
+		if (kids) {
+			parts.push(`#${kids.size()}`);
+			for (const k of kids) walk(k);
+		}
+	}
+	walk(node);
+	return Hashing.fingerprint(parts);
+}
+
 function getProjectStructure(requestData: Record<string, unknown>) {
-	const startPath = (requestData.path as string) ?? "";
+	const startPath = ((requestData.instancePath as string) ?? (requestData.path as string)) ?? "";
 	const maxDepth = (requestData.maxDepth as number) ?? 3;
 	const showScriptsOnly = (requestData.scriptsOnly as boolean) ?? false;
+	const knownHash = requestData.knownHash as string | undefined;
 
 	if (startPath === "" || startPath === "game") {
 		const services: Record<string, unknown>[] = [];
@@ -462,14 +556,24 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 			}
 		}
 
+		const overviewParts: Array<string | number | boolean> = ["service_overview"];
+		for (const s of services) {
+			overviewParts.push(tostring(s.path ?? ""));
+			overviewParts.push(tostring(s.childCount ?? 0));
+		}
+		const overviewHash = Hashing.fingerprint(overviewParts);
+		if (knownHash !== undefined && knownHash === overviewHash) {
+			return { unchanged: true, hash: overviewHash };
+		}
 		return {
 			type: "service_overview",
 			services,
+			hash: overviewHash,
 		};
 	}
 
 	const startInstance = getInstanceByPath(startPath);
-	if (!startInstance) return { error: `Path not found: ${startPath}` };
+	if (!startInstance) return { error: `Path not found: ${startPath}. Paths use dot-notation starting with 'game'.`, errorCode: "path_not_found", path: startPath };
 
 	function getStructure(instance: Instance, depth: number): Record<string, unknown> {
 		if (depth > maxDepth) {
@@ -559,12 +663,18 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 		return node;
 	}
 
-	return getStructure(startInstance, 0);
+	const tree = getStructure(startInstance, 0);
+	const treeHash = hashTree(tree);
+	if (knownHash !== undefined && knownHash === treeHash) {
+		return { unchanged: true, hash: treeHash };
+	}
+	tree.hash = treeHash;
+	return tree;
 }
 
 function grepScripts(requestData: Record<string, unknown>) {
 	const pattern = requestData.pattern as string;
-	if (!pattern) return { error: "pattern is required" };
+	if (!pattern) return { error: "pattern is required", errorCode: "missing_arg", argName: "pattern" };
 
 	const caseSensitive = (requestData.caseSensitive as boolean) ?? false;
 	const contextLines = (requestData.contextLines as number) ?? 0;
@@ -702,13 +812,13 @@ function grepScripts(requestData: Record<string, unknown>) {
 
 function getDescendants(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
-	if (!instancePath) return { error: "Instance path is required" };
+	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const maxDepth = (requestData.maxDepth as number) ?? 10;
 	const classFilter = requestData.classFilter as string | undefined;
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
 
 	const descendants: { name: string; className: string; path: string; depth: number }[] = [];
 
@@ -736,14 +846,14 @@ function compareInstances(requestData: Record<string, unknown>) {
 	const instancePathB = requestData.instancePathB as string;
 
 	if (!instancePathA || !instancePathB) {
-		return { error: "Both instancePathA and instancePathB are required" };
+		return { error: "Both instancePathA and instancePathB are required", errorCode: "missing_arg" };
 	}
 
 	const instA = getInstanceByPath(instancePathA);
-	if (!instA) return { error: `Instance not found: ${instancePathA}` };
+	if (!instA) return { error: `Instance not found: ${instancePathA}`, errorCode: "instance_not_found", instancePath: instancePathA };
 
 	const instB = getInstanceByPath(instancePathB);
-	if (!instB) return { error: `Instance not found: ${instancePathB}` };
+	if (!instB) return { error: `Instance not found: ${instancePathB}`, errorCode: "instance_not_found", instancePath: instancePathB };
 
 	const commonProps = [
 		"Name", "ClassName",
@@ -817,7 +927,7 @@ function getOutputLog(requestData: Record<string, unknown>) {
 	});
 
 	if (success) return result;
-	return { error: `Failed to get output log: ${result}` };
+	return { error: `Failed to get output log: ${result}`, errorCode: "output_log_failed" };
 }
 
 export = {

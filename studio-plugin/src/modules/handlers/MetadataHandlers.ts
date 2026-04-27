@@ -1,9 +1,99 @@
-import { CollectionService } from "@rbxts/services";
+import { CollectionService, HttpService } from "@rbxts/services";
 import Utils from "../Utils";
 import Recording from "../Recording";
+import Hashing from "../Hashing";
 
 const ChangeHistoryService = game.GetService("ChangeHistoryService");
 const Selection = game.GetService("Selection");
+
+function describeValue(value: unknown): unknown {
+	const t = typeOf(value);
+	if (t === "boolean" || t === "number" || t === "string" || t === "nil") return value;
+	if (t === "Vector3") {
+		const v = value as Vector3;
+		return { X: v.X, Y: v.Y, Z: v.Z, _type: "Vector3" };
+	}
+	if (t === "Vector2") {
+		const v = value as Vector2;
+		return { X: v.X, Y: v.Y, _type: "Vector2" };
+	}
+	if (t === "Color3") {
+		const c = value as Color3;
+		return { R: c.R, G: c.G, B: c.B, _type: "Color3" };
+	}
+	if (t === "UDim") {
+		const u = value as UDim;
+		return { Scale: u.Scale, Offset: u.Offset, _type: "UDim" };
+	}
+	if (t === "UDim2") {
+		const v = value as UDim2;
+		return {
+			X: { Scale: v.X.Scale, Offset: v.X.Offset },
+			Y: { Scale: v.Y.Scale, Offset: v.Y.Offset },
+			_type: "UDim2",
+		};
+	}
+	if (t === "CFrame") {
+		const cf = value as CFrame;
+		const [x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22] = cf.GetComponents();
+		return {
+			Position: { X: x, Y: y, Z: z },
+			Rotation: [r00, r01, r02, r10, r11, r12, r20, r21, r22],
+			_type: "CFrame",
+		};
+	}
+	if (t === "BrickColor") {
+		const bc = value as BrickColor;
+		return { Name: bc.Name, _type: "BrickColor" };
+	}
+	if (t === "EnumItem") {
+		const e = value as EnumItem;
+		return { Name: e.Name, EnumType: tostring(e.EnumType), Value: e.Value, _type: "EnumItem" };
+	}
+	if (t === "Instance") {
+		const inst = value as Instance;
+		return { Path: getInstancePath(inst), ClassName: inst.ClassName, _type: "Instance" };
+	}
+	return tostring(value);
+}
+
+function safeJsonEncode(value: unknown, depth: number): { ok: true; value: unknown } | { ok: false; reason: string } {
+	if (depth > 6) return { ok: false, reason: "max depth exceeded" };
+	const t = typeOf(value);
+	if (t === "table") {
+		const tbl = value as Record<string | number, unknown>;
+		const out: Record<string | number, unknown> = {};
+		const isArray = (() => {
+			let n = 0;
+			for (const [k] of pairs(tbl)) {
+				if (typeIs(k, "number")) n++;
+				else return false;
+			}
+			return n > 0;
+		})();
+		if (isArray) {
+			const arr: defined[] = [];
+			const arrLen = (tbl as unknown as defined[]).size();
+			for (let i = 0; i < arrLen; i++) {
+				const v = (tbl as unknown as defined[])[i];
+				const r = safeJsonEncode(v, depth + 1);
+				if (!r.ok) return r;
+				arr.push(r.value as defined);
+			}
+			return { ok: true, value: arr };
+		}
+		for (const [k, v] of pairs(tbl)) {
+			const r = safeJsonEncode(v, depth + 1);
+			if (!r.ok) return r;
+			out[tostring(k)] = r.value;
+		}
+		return { ok: true, value: out };
+	}
+	if (t === "function" || t === "thread" || t === "userdata") {
+		return { ok: false, reason: `non-serializable type: ${t}` };
+	}
+	return { ok: true, value: describeValue(value) };
+}
 
 const { getInstancePath, getInstanceByPath } = Utils;
 const { beginRecording, finishRecording } = Recording;
@@ -58,11 +148,11 @@ function getAttribute(requestData: Record<string, unknown>) {
 	const attributeName = requestData.attributeName as string;
 
 	if (!instancePath || !attributeName) {
-		return { error: "Instance path and attribute name are required" };
+		return { error: "Instance path and attribute name are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const [success, result] = pcall(() => {
 		const value = instance.GetAttribute(attributeName);
@@ -76,7 +166,7 @@ function getAttribute(requestData: Record<string, unknown>) {
 	});
 
 	if (success) return result;
-	return { error: `Failed to get attribute: ${result}` };
+	return { error: `Failed to get attribute: ${result}`, errorCode: "attribute_read_failed" };
 }
 
 function setAttribute(requestData: Record<string, unknown>) {
@@ -86,11 +176,11 @@ function setAttribute(requestData: Record<string, unknown>) {
 	const valueType = requestData.valueType as string | undefined;
 
 	if (!instancePath || !attributeName) {
-		return { error: "Instance path and attribute name are required" };
+		return { error: "Instance path and attribute name are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	const recordingId = beginRecording(`Set attribute ${attributeName} on ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -108,15 +198,16 @@ function setAttribute(requestData: Record<string, unknown>) {
 		return result;
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to set attribute: ${result}` };
+	return { error: `Failed to set attribute: ${result}`, errorCode: "attribute_write_failed" };
 }
 
 function getAttributes(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
-	if (!instancePath) return { error: "Instance path is required" };
+	const knownHash = requestData.knownHash as string | undefined;
+	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const [success, result] = pcall(() => {
 		const attributes = instance.GetAttributes();
@@ -131,11 +222,27 @@ function getAttributes(requestData: Record<string, unknown>) {
 			count++;
 		}
 
-		return { instancePath, attributes: serializedAttributes, count };
+		const hashParts: Array<string | number | boolean> = ["attributes", instancePath, count];
+		const sortedNames: string[] = [];
+		for (const [n] of pairs(serializedAttributes)) sortedNames.push(n as string);
+		sortedNames.sort();
+		for (const n of sortedNames) {
+			hashParts.push(n);
+			hashParts.push(serializedAttributes[n].type);
+			hashParts.push(tostring(serializedAttributes[n].value));
+		}
+		const hash = Hashing.fingerprint(hashParts);
+		return { instancePath, attributes: serializedAttributes, count, hash };
 	});
 
-	if (success) return result;
-	return { error: `Failed to get attributes: ${result}` };
+	if (success) {
+		const r = result as Record<string, unknown>;
+		if (knownHash !== undefined && knownHash === r.hash) {
+			return { unchanged: true, hash: r.hash };
+		}
+		return r;
+	}
+	return { error: `Failed to get attributes: ${result}`, errorCode: "attribute_read_failed" };
 }
 
 function deleteAttribute(requestData: Record<string, unknown>) {
@@ -143,11 +250,11 @@ function deleteAttribute(requestData: Record<string, unknown>) {
 	const attributeName = requestData.attributeName as string;
 
 	if (!instancePath || !attributeName) {
-		return { error: "Instance path and attribute name are required" };
+		return { error: "Instance path and attribute name are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	const recordingId = beginRecording(`Delete attribute ${attributeName} from ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -165,15 +272,15 @@ function deleteAttribute(requestData: Record<string, unknown>) {
 		return result;
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to delete attribute: ${result}` };
+	return { error: `Failed to delete attribute: ${result}`, errorCode: "attribute_delete_failed" };
 }
 
 function getTags(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
-	if (!instancePath) return { error: "Instance path is required" };
+	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const [success, result] = pcall(() => {
 		const tags = CollectionService.GetTags(instance);
@@ -181,7 +288,7 @@ function getTags(requestData: Record<string, unknown>) {
 	});
 
 	if (success) return result;
-	return { error: `Failed to get tags: ${result}` };
+	return { error: `Failed to get tags: ${result}`, errorCode: "tag_read_failed" };
 }
 
 function addTag(requestData: Record<string, unknown>) {
@@ -189,11 +296,11 @@ function addTag(requestData: Record<string, unknown>) {
 	const tagName = requestData.tagName as string;
 
 	if (!instancePath || !tagName) {
-		return { error: "Instance path and tag name are required" };
+		return { error: "Instance path and tag name are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	const recordingId = beginRecording(`Add tag ${tagName} to ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -211,7 +318,7 @@ function addTag(requestData: Record<string, unknown>) {
 		return result;
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to add tag: ${result}` };
+	return { error: `Failed to add tag: ${result}`, errorCode: "tag_write_failed" };
 }
 
 function removeTag(requestData: Record<string, unknown>) {
@@ -219,11 +326,11 @@ function removeTag(requestData: Record<string, unknown>) {
 	const tagName = requestData.tagName as string;
 
 	if (!instancePath || !tagName) {
-		return { error: "Instance path and tag name are required" };
+		return { error: "Instance path and tag name are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	const recordingId = beginRecording(`Remove tag ${tagName} from ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -241,12 +348,12 @@ function removeTag(requestData: Record<string, unknown>) {
 		return result;
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to remove tag: ${result}` };
+	return { error: `Failed to remove tag: ${result}`, errorCode: "tag_remove_failed" };
 }
 
 function getTagged(requestData: Record<string, unknown>) {
 	const tagName = requestData.tagName as string;
-	if (!tagName) return { error: "Tag name is required" };
+	if (!tagName) return { error: "Tag name is required", errorCode: "missing_arg", argName: "tagName" };
 
 	const [success, result] = pcall(() => {
 		const taggedInstances = CollectionService.GetTagged(tagName);
@@ -260,7 +367,7 @@ function getTagged(requestData: Record<string, unknown>) {
 	});
 
 	if (success) return result;
-	return { error: `Failed to get tagged instances: ${result}` };
+	return { error: `Failed to get tagged instances: ${result}`, errorCode: "tag_query_failed" };
 }
 
 function getSelection(_requestData: Record<string, unknown>) {
@@ -287,7 +394,7 @@ function getSelection(_requestData: Record<string, unknown>) {
 
 function executeLuau(requestData: Record<string, unknown>) {
 	const code = requestData.code as string;
-	if (!code || code === "") return { error: "Code is required" };
+	if (!code || code === "") return { error: "Code is required", errorCode: "missing_arg", argName: "code" };
 
 	const output: string[] = [];
 	const oldPrint = print;
@@ -317,15 +424,24 @@ function executeLuau(requestData: Record<string, unknown>) {
 	env["warn"] = oldWarn;
 
 	if (success) {
-		return {
-			success: true,
-			returnValue: result !== undefined ? tostring(result) : undefined,
-			output,
-		};
+		const response: Record<string, unknown> = { success: true, output };
+		if (result !== undefined) {
+			const encoded = safeJsonEncode(result, 0);
+			if (encoded.ok) {
+				response.returnValue = encoded.value;
+				response.returnType = typeOf(result);
+			} else {
+				response.returnValue = tostring(result);
+				response.returnType = typeOf(result);
+				response.returnSerializationNote = encoded.reason;
+			}
+		}
+		return response;
 	} else {
 		return {
 			success: false,
 			error: tostring(result),
+			errorCode: "luau_runtime_error",
 			output,
 		};
 	}
@@ -338,7 +454,7 @@ function undo(_requestData: Record<string, unknown>) {
 	});
 
 	if (success) return result;
-	return { error: `Failed to undo: ${result}` };
+	return { error: `Failed to undo: ${result}`, errorCode: "undo_failed" };
 }
 
 function redo(_requestData: Record<string, unknown>) {
@@ -360,7 +476,7 @@ function bulkSetAttributes(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const recordingId = beginRecording(`Bulk set attributes on ${instance.Name}`);
 

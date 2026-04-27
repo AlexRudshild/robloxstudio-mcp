@@ -110,7 +110,7 @@ export class RobloxStudioMCPServer {
             return await this.tools.getInstanceChildren((args as any)?.instancePath as string, (args as any)?.knownHash);
 
           case 'get_project_structure':
-            return await this.tools.getProjectStructure((args as any)?.path, (args as any)?.maxDepth, (args as any)?.scriptsOnly);
+            return await this.tools.getProjectStructure((args as any)?.instancePath ?? (args as any)?.path, (args as any)?.maxDepth, (args as any)?.scriptsOnly, (args as any)?.knownHash);
 
           case 'set_property':
             return await this.tools.setProperty((args as any)?.instancePath as string, (args as any)?.propertyName as string, (args as any)?.propertyValue);
@@ -165,7 +165,7 @@ export class RobloxStudioMCPServer {
           case 'set_attribute':
             return await this.tools.setAttribute((args as any)?.instancePath as string, (args as any)?.attributeName as string, (args as any)?.attributeValue, (args as any)?.valueType);
           case 'get_attributes':
-            return await this.tools.getAttributes((args as any)?.instancePath as string, (args as any)?.attributeName);
+            return await this.tools.getAttributes((args as any)?.instancePath as string, (args as any)?.attributeName, (args as any)?.knownHash);
           case 'delete_attribute':
             return await this.tools.deleteAttribute((args as any)?.instancePath as string, (args as any)?.attributeName as string);
 

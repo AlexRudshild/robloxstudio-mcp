@@ -91,11 +91,11 @@ function createObject(requestData: Record<string, unknown>) {
 	const properties = (requestData.properties as Record<string, unknown>) ?? {};
 
 	if (!className || !parentPath) {
-		return { error: "Class name and parent are required" };
+		return { error: "Class name and parent are required", errorCode: "missing_arg" };
 	}
 
 	const parentInstance = getInstanceByPath(parentPath);
-	if (!parentInstance) return { error: `Parent instance not found: ${parentPath}` };
+	if (!parentInstance) return { error: `Parent instance not found: ${parentPath}. Use search() or get_project_structure() to find a valid parent path.`, errorCode: "parent_not_found", parentPath };
 	const recordingId = beginRecording(`Create ${className}`);
 
 	const [success, newInstance] = pcall(() => {
@@ -125,17 +125,17 @@ function createObject(requestData: Record<string, unknown>) {
 		};
 	} else {
 		finishRecording(recordingId, false);
-		return { error: `Failed to create object: ${newInstance}`, className, parent: parentPath };
+		return { error: `Failed to create object: ${newInstance}. Class may not be creatable from script, or parent may not accept this child type.`, errorCode: "create_failed", className, parentPath };
 	}
 }
 
 function deleteObject(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
-	if (!instancePath) return { error: "Instance path is required" };
+	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
-	if (instance === game) return { error: "Cannot delete the game instance" };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (instance === game) return { error: "Cannot delete the game instance", errorCode: "delete_protected" };
 	const recordingId = beginRecording(`Delete ${instance.ClassName} (${instance.Name})`);
 
 	const [success, result] = pcall(() => {
@@ -148,14 +148,14 @@ function deleteObject(requestData: Record<string, unknown>) {
 		return { success: true, instancePath };
 	} else {
 		finishRecording(recordingId, false);
-		return { error: `Failed to delete object: ${result}`, instancePath };
+		return { error: `Failed to delete object: ${result}`, errorCode: "delete_failed", instancePath };
 	}
 }
 
 function massCreateObjects(requestData: Record<string, unknown>) {
 	const objects = requestData.objects as Record<string, unknown>[];
 	if (!objects || !typeIs(objects, "table") || (objects as defined[]).size() === 0) {
-		return { error: "Objects array is required" };
+		return { error: "Objects array is required", errorCode: "missing_arg" };
 	}
 
 	const recordingId = beginRecording("Mass create objects");
@@ -166,7 +166,7 @@ function massCreateObjects(requestData: Record<string, unknown>) {
 		const name = objData.name as string | undefined;
 		const parentInstance = getInstanceByPath(parentPath);
 		if (!parentInstance) {
-			return { error: "Parent instance not found", className, parentPath };
+			return { error: "Parent instance not found", errorCode: "parent_not_found", className, parentPath };
 		}
 
 		const [success, newInstance] = pcall(() => {
@@ -177,7 +177,7 @@ function massCreateObjects(requestData: Record<string, unknown>) {
 		});
 
 		if (!success || !newInstance) {
-			return { error: tostring(newInstance), className, parentPath };
+			return { error: tostring(newInstance), errorCode: "create_failed", className, parentPath };
 		}
 
 		return { instance: newInstance as Instance, className, parentPath };
@@ -195,11 +195,11 @@ function performSmartDuplicate(requestData: Record<string, unknown>, useRecordin
 	const options = (requestData.options as Record<string, unknown>) ?? {};
 
 	if (!instancePath || !count || count < 1) {
-		return { error: "Instance path and count > 0 are required" };
+		return { error: "Instance path and count > 0 are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	const recordingId = useRecording ? beginRecording(`Smart duplicate ${instance.Name}`) : undefined;
 
 	const results: Record<string, unknown>[] = [];
@@ -297,7 +297,7 @@ function smartDuplicate(requestData: Record<string, unknown>) {
 function massDuplicate(requestData: Record<string, unknown>) {
 	const duplications = requestData.duplications as Record<string, unknown>[];
 	if (!duplications || !typeIs(duplications, "table") || (duplications as defined[]).size() === 0) {
-		return { error: "Duplications array is required" };
+		return { error: "Duplications array is required", errorCode: "missing_arg" };
 	}
 
 	const allResults: Record<string, unknown>[] = [];
@@ -327,14 +327,14 @@ function cloneObject(requestData: Record<string, unknown>) {
 	const targetParentPath = requestData.targetParentPath as string;
 
 	if (!instancePath || !targetParentPath) {
-		return { error: "Instance path and target parent path are required" };
+		return { error: "Instance path and target parent path are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const targetParent = getInstanceByPath(targetParentPath);
-	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}` };
+	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}`, errorCode: "parent_not_found", targetParentPath };
 
 	const recordingId = beginRecording(`Clone ${instance.Name}`);
 
@@ -355,7 +355,7 @@ function cloneObject(requestData: Record<string, unknown>) {
 		};
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to clone object: ${clone}` };
+	return { error: `Failed to clone object: ${clone}`, errorCode: "clone_failed" };
 }
 
 function moveObject(requestData: Record<string, unknown>) {
@@ -363,14 +363,14 @@ function moveObject(requestData: Record<string, unknown>) {
 	const targetParentPath = requestData.targetParentPath as string;
 
 	if (!instancePath || !targetParentPath) {
-		return { error: "Instance path and target parent path are required" };
+		return { error: "Instance path and target parent path are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const targetParent = getInstanceByPath(targetParentPath);
-	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}` };
+	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}`, errorCode: "parent_not_found", targetParentPath };
 
 	const recordingId = beginRecording(`Move ${instance.Name}`);
 
@@ -390,7 +390,7 @@ function moveObject(requestData: Record<string, unknown>) {
 		};
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to move object: ${result}` };
+	return { error: `Failed to move object: ${result}`, errorCode: "move_failed" };
 }
 
 function createUITree(requestData: Record<string, unknown>) {
@@ -398,14 +398,14 @@ function createUITree(requestData: Record<string, unknown>) {
 	const parentPath = requestData.parentPath as string;
 
 	if (!tree || !parentPath) {
-		return { error: "Tree object and parentPath are required" };
+		return { error: "Tree object and parentPath are required", errorCode: "missing_arg" };
 	}
 
 	const parent = getInstanceByPath(parentPath);
-	if (!parent) return { error: `Parent not found: ${parentPath}` };
+	if (!parent) return { error: `Parent not found: ${parentPath}`, errorCode: "parent_not_found", parentPath };
 
 	if (!tree.className || !typeIs(tree.className, "string")) {
-		return { error: "Tree root must have a className string" };
+		return { error: "Tree root must have a className string", errorCode: "invalid_arg" };
 	}
 
 	const MAX_DEPTH = 20;

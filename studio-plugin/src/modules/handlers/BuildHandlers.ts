@@ -57,14 +57,14 @@ function exportBuild(requestData: Record<string, unknown>) {
 	const style = (requestData.style as string) ?? "misc";
 
 	if (!instancePath) {
-		return { error: "Instance path is required" };
+		return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}.`, errorCode: "instance_not_found", instancePath };
 
 	if (!instance.IsA("Model") && !instance.IsA("Folder")) {
-		return { error: "Instance must be a Model or Folder" };
+		return { error: "Instance must be a Model or Folder", errorCode: "invalid_class" };
 	}
 
 	const [success, result] = pcall(() => {
@@ -77,7 +77,7 @@ function exportBuild(requestData: Record<string, unknown>) {
 		}
 
 		if (baseParts.size() === 0) {
-			return { error: "No BaseParts found in instance" };
+			return { error: "No BaseParts found in instance", errorCode: "empty_build" };
 		}
 
 		// Compute bounding box center
@@ -203,7 +203,7 @@ function exportBuild(requestData: Record<string, unknown>) {
 	if (success && result) {
 		return result;
 	} else {
-		return { error: `Failed to export build: ${result}` };
+		return { error: `Failed to export build: ${result}`, errorCode: "export_failed" };
 	}
 }
 
@@ -213,11 +213,11 @@ function importBuild(requestData: Record<string, unknown>) {
 	const positionOffset = (requestData.position as number[]) ?? [0, 0, 0];
 
 	if (!buildData || !targetPath) {
-		return { error: "buildData and targetPath are required" };
+		return { error: "buildData and targetPath are required", errorCode: "missing_arg" };
 	}
 
 	const parentInstance = getInstanceByPath(targetPath);
-	if (!parentInstance) return { error: `Target not found: ${targetPath}` };
+	if (!parentInstance) return { error: `Target not found: ${targetPath}`, errorCode: "target_not_found", targetPath };
 	const recordingId = beginRecording("Import build");
 
 	const [success, result] = pcall(() => {
@@ -306,7 +306,7 @@ function importBuild(requestData: Record<string, unknown>) {
 		return result;
 	} else {
 		finishRecording(recordingId, false);
-		return { error: `Failed to import build: ${result}` };
+		return { error: `Failed to import build: ${result}`, errorCode: "import_failed" };
 	}
 }
 
@@ -315,11 +315,11 @@ function importScene(requestData: Record<string, unknown>) {
 	const targetPath = (requestData.targetPath as string) ?? "game.Workspace";
 
 	if (!expandedBuilds || !typeIs(expandedBuilds, "table") || (expandedBuilds as defined[]).size() === 0) {
-		return { error: "expandedBuilds array is required" };
+		return { error: "expandedBuilds array is required", errorCode: "missing_arg" };
 	}
 
 	const parentInstance = getInstanceByPath(targetPath);
-	if (!parentInstance) return { error: `Target not found: ${targetPath}` };
+	if (!parentInstance) return { error: `Target not found: ${targetPath}`, errorCode: "target_not_found", targetPath };
 	const recordingId = beginRecording("Import scene");
 
 	const [success, result] = pcall(() => {
@@ -433,7 +433,7 @@ function importScene(requestData: Record<string, unknown>) {
 		return result;
 	} else {
 		finishRecording(recordingId, false);
-		return { error: `Failed to import scene: ${result}` };
+		return { error: `Failed to import scene: ${result}`, errorCode: "scene_import_failed" };
 	}
 }
 
@@ -469,7 +469,7 @@ function searchMaterials(requestData: Record<string, unknown>) {
 	if (success && result) {
 		return result;
 	} else {
-		return { error: `Failed to search materials: ${result}` };
+		return { error: `Failed to search materials: ${result}`, errorCode: "material_search_failed" };
 	}
 }
 

@@ -10,11 +10,11 @@ function setProperty(requestData: Record<string, unknown>) {
 	const propertyValue = requestData.propertyValue;
 
 	if (!instancePath || !propertyName) {
-		return { error: "Instance path and property name are required" };
+		return { error: "Instance path and property name are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	const recordingId = beginRecording(`Set ${propertyName} property`);
 
 	const inst = instance as unknown as Record<string, unknown>;
@@ -26,7 +26,7 @@ function setProperty(requestData: Record<string, unknown>) {
 				if (refInstance) {
 					inst[propertyName] = refInstance;
 				} else {
-					return { error: `${propertyName} instance not found: ${propertyValue}` };
+					return { error: `${propertyName} instance not found: ${propertyValue}`, errorCode: "ref_not_found" };
 				}
 			}
 		} else if (propertyName === "Name") {
@@ -55,7 +55,7 @@ function setProperty(requestData: Record<string, unknown>) {
 		};
 	} else {
 		finishRecording(recordingId, false);
-		return { error: `Failed to set property: ${result}`, instancePath, propertyName };
+		return { error: `Failed to set property: ${result}. Property may be read-only, missing on this class, or expect a different type.`, errorCode: "property_write_failed", instancePath, propertyName };
 	}
 }
 
@@ -65,7 +65,7 @@ function massSetProperty(requestData: Record<string, unknown>) {
 	const propertyValue = requestData.propertyValue;
 
 	if (!paths || !typeIs(paths, "table") || (paths as defined[]).size() === 0 || !propertyName) {
-		return { error: "Paths array and property name are required" };
+		return { error: "Paths array and property name are required", errorCode: "missing_arg" };
 	}
 
 	const results: Record<string, unknown>[] = [];
@@ -88,7 +88,7 @@ function massSetProperty(requestData: Record<string, unknown>) {
 			}
 		} else {
 			failureCount++;
-			results.push({ path, success: false, error: "Instance not found" });
+			results.push({ path, success: false, error: "Instance not found", errorCode: "instance_not_found" });
 		}
 	}
 
@@ -105,7 +105,7 @@ function massGetProperty(requestData: Record<string, unknown>) {
 	const propertyName = requestData.propertyName as string;
 
 	if (!paths || !typeIs(paths, "table") || (paths as defined[]).size() === 0 || !propertyName) {
-		return { error: "Paths array and property name are required" };
+		return { error: "Paths array and property name are required", errorCode: "missing_arg" };
 	}
 
 	const results: Record<string, unknown>[] = [];
@@ -120,7 +120,7 @@ function massGetProperty(requestData: Record<string, unknown>) {
 				results.push({ path, success: false, error: tostring(value) });
 			}
 		} else {
-			results.push({ path, success: false, error: "Instance not found" });
+			results.push({ path, success: false, error: "Instance not found", errorCode: "instance_not_found" });
 		}
 	}
 
@@ -132,11 +132,11 @@ function setProperties(requestData: Record<string, unknown>) {
 	const properties = requestData.properties as Record<string, unknown>;
 
 	if (!instancePath || !properties || !typeIs(properties, "table")) {
-		return { error: "Instance path and properties object are required" };
+		return { error: "Instance path and properties object are required", errorCode: "missing_arg" };
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 
 	const recordingId = beginRecording("Set multiple properties");
 	const inst = instance as unknown as Record<string, unknown>;

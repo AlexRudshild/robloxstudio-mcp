@@ -14,12 +14,12 @@ function insertAsset(requestData: Record<string, unknown>) {
 	const position = requestData.position as { x: number; y: number; z: number } | undefined;
 
 	if (!assetId) {
-		return { error: "assetId is required" };
+		return { error: "assetId is required", errorCode: "missing_arg", argName: "assetId" };
 	}
 
 	const parentInstance = getInstanceByPath(parentPath);
 	if (!parentInstance) {
-		return { error: `Parent instance not found: ${parentPath}` };
+		return { error: `Parent instance not found: ${parentPath}`, errorCode: "parent_not_found", parentPath };
 	}
 
 	const recordingId = beginRecording(`Insert asset ${assetId}`);
@@ -83,7 +83,7 @@ function insertAsset(requestData: Record<string, unknown>) {
 	finishRecording(recordingId, insertSuccess);
 
 	if (!insertSuccess) {
-		return { error: `Failed to insert asset ${assetId}: ${tostring(insertResult)}` };
+		return { error: `Failed to insert asset ${assetId}: ${tostring(insertResult)}`, errorCode: "asset_insert_failed", assetId };
 	}
 
 	return insertResult;
@@ -95,7 +95,7 @@ function previewAsset(requestData: Record<string, unknown>) {
 	const maxDepth = (requestData.maxDepth as number) ?? 10;
 
 	if (!assetId) {
-		return { error: "assetId is required" };
+		return { error: "assetId is required", errorCode: "missing_arg", argName: "assetId" };
 	}
 
 	const [loadSuccess, wrapperModel] = pcall(() => {
@@ -103,7 +103,7 @@ function previewAsset(requestData: Record<string, unknown>) {
 	});
 
 	if (!loadSuccess || !wrapperModel) {
-		return { error: `Failed to load asset ${assetId}: ${tostring(wrapperModel)}` };
+		return { error: `Failed to load asset ${assetId}: ${tostring(wrapperModel)}`, errorCode: "asset_load_failed", assetId };
 	}
 
 	// Stats tracking
@@ -229,7 +229,7 @@ function previewAsset(requestData: Record<string, unknown>) {
 	});
 
 	if (!previewSuccess) {
-		return { error: `Failed to preview asset ${assetId}: ${tostring(previewResult)}` };
+		return { error: `Failed to preview asset ${assetId}: ${tostring(previewResult)}`, errorCode: "asset_preview_failed", assetId };
 	}
 
 	return previewResult;
