@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "build": "npm run build -w packages/core && npm run build -w packages/robloxstudio-mcp && npm run build -w packages/robloxstudio-mcp-inspector",
-    "build:plugin": "node scripts/build-plugin.mjs",
+    "build:studio-plugin": "npm --prefix studio-plugin install && npm --prefix studio-plugin run build",
+    "build:plugin": "npm run build:studio-plugin && node scripts/build-plugin.mjs",
     "build:all": "npm run build && npm run build:plugin",
     "update": "node scripts/update.mjs",
     "install:plugin": "npm run build:plugin",
