@@ -234,11 +234,11 @@ export class RobloxStudioMCPServer {
           case 'rename_object':
             return await this.tools.renameObject((args as any)?.instancePath as string, (args as any)?.newName as string);
           case 'get_descendants':
-            return await this.tools.getDescendants((args as any)?.instancePath as string, (args as any)?.maxDepth, (args as any)?.classFilter);
+            return await this.tools.getDescendants((args as any)?.instancePath as string, (args as any)?.maxDepth, (args as any)?.classFilter, (args as any)?.knownHash);
           case 'compare_instances':
             return await this.tools.compareInstances((args as any)?.instancePathA as string, (args as any)?.instancePathB as string);
           case 'get_output_log':
-            return await this.tools.getOutputLog((args as any)?.maxEntries, (args as any)?.messageType);
+            return await this.tools.getOutputLog((args as any)?.maxEntries, (args as any)?.messageType, (args as any)?.knownHash);
           case 'get_script_analysis':
             return await this.tools.getScriptAnalysis((args as any)?.instancePath as string);
           case 'bulk_set_attributes':

@@ -816,6 +816,7 @@ function getDescendants(requestData: Record<string, unknown>) {
 
 	const maxDepth = (requestData.maxDepth as number) ?? 10;
 	const classFilter = requestData.classFilter as string | undefined;
+	const knownHash = requestData.knownHash as string | undefined;
 
 	const instance = getInstanceByPath(instancePath);
 	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
@@ -838,7 +839,17 @@ function getDescendants(requestData: Record<string, unknown>) {
 
 	collect(instance, 1);
 
-	return { instancePath, descendants, count: descendants.size(), maxDepth };
+	const hashParts: Array<string | number | boolean> = ["descendants", instancePath, maxDepth, classFilter ?? "", descendants.size()];
+	for (const d of descendants) {
+		hashParts.push(d.path);
+		hashParts.push(d.className);
+	}
+	const hash = Hashing.fingerprint(hashParts);
+	if (knownHash !== undefined && knownHash === hash) {
+		return { unchanged: true, hash };
+	}
+
+	return { instancePath, descendants, count: descendants.size(), maxDepth, hash };
 }
 
 function compareInstances(requestData: Record<string, unknown>) {
@@ -901,6 +912,7 @@ function compareInstances(requestData: Record<string, unknown>) {
 function getOutputLog(requestData: Record<string, unknown>) {
 	const maxEntries = (requestData.maxEntries as number) ?? 100;
 	const messageTypeFilter = requestData.messageType as string | undefined;
+	const knownHash = requestData.knownHash as string | undefined;
 
 	const [success, result] = pcall(() => {
 		const LogService = game.GetService("LogService");
@@ -923,10 +935,24 @@ function getOutputLog(requestData: Record<string, unknown>) {
 			finalEntries.push(allEntries[i]);
 		}
 
-		return { entries: finalEntries, count: finalEntries.size(), totalAvailable: allEntries.size() };
+		const hashParts: Array<string | number | boolean> = ["output_log", messageTypeFilter ?? "", finalEntries.size()];
+		for (const e of finalEntries) {
+			hashParts.push(tostring(e.timestamp));
+			hashParts.push(tostring(e.messageType));
+			hashParts.push(tostring(e.message));
+		}
+		const hash = Hashing.fingerprint(hashParts);
+
+		return { entries: finalEntries, count: finalEntries.size(), totalAvailable: allEntries.size(), hash };
 	});
 
-	if (success) return result;
+	if (success) {
+		const r = result as Record<string, unknown>;
+		if (knownHash !== undefined && knownHash === r.hash) {
+			return { unchanged: true, hash: r.hash };
+		}
+		return r;
+	}
 	return { error: `Failed to get output log: ${result}`, errorCode: "output_log_failed" };
 }
 

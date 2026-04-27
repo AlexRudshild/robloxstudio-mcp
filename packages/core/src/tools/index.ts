@@ -687,12 +687,16 @@ export class RobloxStudioTools {
     const instances = this.bridge.getInstances();
     const availableRoles = instances.map(i => i.role);
     if (!availableRoles.includes(resolvedTarget)) {
+      const targetGuidance = availableRoles.includes('edit') && resolvedTarget !== 'edit'
+        ? 'For playtest targets (server, client-N), call start_playtest first.'
+        : 'Ensure the Studio plugin is running.';
       const errorPayload = {
         success: false,
         errorCode: 'target_not_connected',
-        error: `Target "${resolvedTarget}" is not connected. Available targets: [${availableRoles.join(', ')}]. ${availableRoles.includes('edit') && resolvedTarget !== 'edit' ? 'For playtest targets (server, client-N), call start_playtest first.' : 'Ensure the Studio plugin is running.'}`,
+        error: `Target "${resolvedTarget}" is not connected. Available targets: [${availableRoles.join(', ')}]. ${targetGuidance}`,
         availableTargets: availableRoles,
         retryable: false,
+        hint: 'If you only need to validate code (syntax/require check), use get_script_analysis instead — it works without a connected target. Enable scripting_plus feature first if not loaded.',
       };
       return {
         content: [{ type: 'text', text: JSON.stringify(errorPayload) }],
@@ -1650,11 +1654,11 @@ export class RobloxStudioTools {
     return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
-  async getDescendants(instancePath: string, maxDepth?: number, classFilter?: string) {
+  async getDescendants(instancePath: string, maxDepth?: number, classFilter?: string, knownHash?: string) {
     if (!instancePath) {
       throw new Error('instancePath is required for get_descendants');
     }
-    const response = await this.client.request('/api/get-descendants', { instancePath, maxDepth, classFilter });
+    const response = await this.client.request('/api/get-descendants', { instancePath, maxDepth, classFilter, knownHash });
     return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
@@ -1666,8 +1670,8 @@ export class RobloxStudioTools {
     return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
-  async getOutputLog(maxEntries?: number, messageType?: string) {
-    const response = await this.client.request('/api/get-output-log', { maxEntries, messageType });
+  async getOutputLog(maxEntries?: number, messageType?: string, knownHash?: string) {
+    const response = await this.client.request('/api/get-output-log', { maxEntries, messageType, knownHash });
     return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 

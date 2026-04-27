@@ -847,7 +847,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'execute_luau',
     category: 'write',
-    description: 'Execute Luau code in plugin context. Use print()/warn() for output. Return value is captured.',
+    description: 'Execute Luau code in plugin context. Use print()/warn() for output. Return value is JSON-encoded (tables preserved). Requires connected target — pre-validates against connected instances and fails fast with errorCode: target_not_connected if unavailable. For code validation only (syntax/require), prefer get_script_analysis (scripting_plus feature) — works without a target. For ModuleScript fresh-require validation after edits, use edit_script_lines with validateAfter:true instead of manual clone+require.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1619,7 +1619,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'get_descendants',
     feature: 'inspection_plus',
     category: 'read',
-    description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls.',
+    description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls. Pass knownHash to dedup unchanged trees (returns {unchanged:true, hash}).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1634,6 +1634,10 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
         classFilter: {
           type: 'string',
           description: 'Only include instances of this class (uses IsA, so "BasePart" matches Part, MeshPart, etc.)'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from prior call. If unchanged, returns {unchanged:true, hash} instead of full descendants list.'
         }
       },
       required: ['instancePath']
@@ -1665,7 +1669,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'get_output_log',
     feature: 'inspection_plus',
     category: 'read',
-    description: 'Get the Studio output log history. Works in both edit and play mode.',
+    description: 'Get the Studio output log history. Works in both edit and play mode. Pass knownHash to dedup polled output (returns {unchanged:true, hash} when log unchanged since prior call) — useful when polling for new output during long-running tasks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1676,6 +1680,10 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
         messageType: {
           type: 'string',
           description: 'Filter by message type (e.g. "Enum.MessageType.MessageOutput", "Enum.MessageType.MessageWarning", "Enum.MessageType.MessageError")'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from prior call. Returns {unchanged:true, hash} if log is identical — skip when polling.'
         }
       }
     }
