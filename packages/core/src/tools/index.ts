@@ -132,31 +132,6 @@ export class RobloxStudioTools {
   }
 
 
-  async getFileTree(path: string = '') {
-    const response = await this.client.request('/api/file-tree', { path });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
-
-  async searchFiles(query: string, searchType: string = 'name') {
-    const response = await this.client.request('/api/search-files', { query, searchType });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
-
-
   async getPlaceInfo() {
     const response = await this.client.request('/api/place-info', {});
     return {
@@ -181,20 +156,23 @@ export class RobloxStudioTools {
     };
   }
 
-  async searchObjects(query: string, searchType: string = 'name', propertyName?: string) {
+  async search(query: string, searchType: string = 'name', propertyName?: string) {
+    if (!query) {
+      throw new Error('query is required for search');
+    }
+    if (searchType === 'content') {
+      const response = await this.client.request('/api/search-files', { query, searchType: 'content' });
+      return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+    }
+    if (searchType === 'property' && !propertyName) {
+      throw new Error('propertyName is required when searchType is "property"');
+    }
     const response = await this.client.request('/api/search-objects', {
       query,
       searchType,
-      propertyName
+      propertyName,
     });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
 
@@ -227,25 +205,6 @@ export class RobloxStudioTools {
       ]
     };
   }
-
-  async searchByProperty(propertyName: string, propertyValue: string) {
-    if (!propertyName || !propertyValue) {
-      throw new Error('Property name and value are required for search_by_property');
-    }
-    const response = await this.client.request('/api/search-by-property', {
-      propertyName,
-      propertyValue
-    });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
-
 
   async getProjectStructure(path?: string, maxDepth?: number, scriptsOnly?: boolean) {
     const response = await this.client.request('/api/project-structure', {
@@ -631,21 +590,6 @@ export class RobloxStudioTools {
     };
   }
 
-  async getAttribute(instancePath: string, attributeName: string) {
-    if (!instancePath || !attributeName) {
-      throw new Error('Instance path and attribute name are required for get_attribute');
-    }
-    const response = await this.client.request('/api/get-attribute', { instancePath, attributeName });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
-
   async setAttribute(instancePath: string, attributeName: string, attributeValue: any, valueType?: string) {
     if (!instancePath || !attributeName) {
       throw new Error('Instance path and attribute name are required for set_attribute');
@@ -661,11 +605,13 @@ export class RobloxStudioTools {
     };
   }
 
-  async getAttributes(instancePath: string) {
+  async getAttributes(instancePath: string, attributeName?: string) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_attributes');
     }
-    const response = await this.client.request('/api/get-attributes', { instancePath });
+    const endpoint = attributeName ? '/api/get-attribute' : '/api/get-attributes';
+    const body = attributeName ? { instancePath, attributeName } : { instancePath };
+    const response = await this.client.request(endpoint, body);
     return {
       content: [
         {

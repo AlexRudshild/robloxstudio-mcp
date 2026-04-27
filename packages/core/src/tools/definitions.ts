@@ -97,40 +97,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
 
   // === File & Instance Browsing ===
-  {
-    name: 'get_file_tree',
-    category: 'read',
-    description: 'Get instance hierarchy tree from Studio',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        path: {
-          type: 'string',
-          description: 'Root path (default: game root)'
-        }
-      }
-    }
-  },
-  {
-    name: 'search_files',
-    category: 'read',
-    description: 'Search instances by name, class, or script content',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Name, class, or code pattern'
-        },
-        searchType: {
-          type: 'string',
-          enum: ['name', 'type', 'content'],
-          description: 'Search mode (default: name)'
-        }
-      },
-      required: ['query']
-    }
-  },
 
   // === Place & Service Info ===
   {
@@ -157,24 +123,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     }
   },
   {
-    name: 'search_objects',
+    name: 'search',
     category: 'read',
-    description: 'Find instances by name, class, or properties',
+    description: 'Find instances. searchType: "name" (substring on Name), "class" (substring on ClassName), "property" (matches query against tostring(instance[propertyName]); requires propertyName), "content" (substring on script source — for richer code search prefer grep_scripts). Default: "name".',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search query'
+          description: 'Substring to match (or property value when searchType is "property")'
         },
         searchType: {
           type: 'string',
-          enum: ['name', 'class', 'property'],
+          enum: ['name', 'class', 'property', 'content'],
           description: 'Search mode (default: name)'
         },
         propertyName: {
           type: 'string',
-          description: 'Property name when searchType is "property"'
+          description: 'Property name (required when searchType is "property")'
         }
       },
       required: ['query']
@@ -227,26 +193,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         }
       },
       required: ['instancePath']
-    }
-  },
-  {
-    name: 'search_by_property',
-    feature: 'inspection_plus',
-    category: 'read',
-    description: 'Find objects with specific property values',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        propertyName: {
-          type: 'string',
-          description: 'Property name'
-        },
-        propertyValue: {
-          type: 'string',
-          description: 'Value to match'
-        }
-      },
-      required: ['propertyName', 'propertyValue']
     }
   },
   // === Project Structure ===
@@ -733,26 +679,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
 
   // === Attributes ===
   {
-    name: 'get_attribute',
-    feature: 'metadata',
-    category: 'read',
-    description: 'Get an attribute value',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        instancePath: {
-          type: 'string',
-          description: 'Instance path (dot notation)'
-        },
-        attributeName: {
-          type: 'string',
-          description: 'Attribute name'
-        }
-      },
-      required: ['instancePath', 'attributeName']
-    }
-  },
-  {
     name: 'set_attribute',
     feature: 'metadata',
     category: 'write',
@@ -783,13 +709,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'get_attributes',
     feature: 'metadata',
     category: 'read',
-    description: 'Get all attributes on an instance',
+    description: 'Get attributes on an instance. Pass attributeName to read just that one (returns {value}); omit to return all attributes as a map.',
     inputSchema: {
       type: 'object',
       properties: {
         instancePath: {
           type: 'string',
           description: 'Instance path (dot notation)'
+        },
+        attributeName: {
+          type: 'string',
+          description: 'Optional. If provided, returns just that attribute; otherwise returns all.'
         }
       },
       required: ['instancePath']

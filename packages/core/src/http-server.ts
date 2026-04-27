@@ -23,14 +23,11 @@ interface StreamableHttpConfig {
 type ToolHandler = (tools: RobloxStudioTools, body: any) => Promise<any>;
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
-  get_file_tree: (tools, body) => tools.getFileTree(body.path),
-  search_files: (tools, body) => tools.searchFiles(body.query, body.searchType),
+  search: (tools, body) => tools.search(body.query, body.searchType, body.propertyName),
   get_place_info: (tools) => tools.getPlaceInfo(),
   get_services: (tools, body) => tools.getServices(body.serviceName),
-  search_objects: (tools, body) => tools.searchObjects(body.query, body.searchType, body.propertyName),
   get_instance_properties: (tools, body) => tools.getInstanceProperties(body.instancePath, body.excludeSource, body.mode, body.knownHash),
   get_instance_children: (tools, body) => tools.getInstanceChildren(body.instancePath, body.knownHash),
-  search_by_property: (tools, body) => tools.searchByProperty(body.propertyName, body.propertyValue),
   get_project_structure: (tools, body) => tools.getProjectStructure(body.path, body.maxDepth, body.scriptsOnly),
   set_property: (tools, body) => tools.setProperty(body.instancePath, body.propertyName, body.propertyValue),
   set_properties: (tools, body) => tools.setProperties(body.instancePath, body.properties),
@@ -58,9 +55,8 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   edit_script_lines: (tools, body) => tools.editScriptLines(body.instancePath, body.old_string, body.new_string),
   insert_script_lines: (tools, body) => tools.insertScriptLines(body.instancePath, body.afterLine, body.newContent),
   delete_script_lines: (tools, body) => tools.deleteScriptLines(body.instancePath, body.startLine, body.endLine),
-  get_attribute: (tools, body) => tools.getAttribute(body.instancePath, body.attributeName),
   set_attribute: (tools, body) => tools.setAttribute(body.instancePath, body.attributeName, body.attributeValue, body.valueType),
-  get_attributes: (tools, body) => tools.getAttributes(body.instancePath),
+  get_attributes: (tools, body) => tools.getAttributes(body.instancePath, body.attributeName),
   delete_attribute: (tools, body) => tools.deleteAttribute(body.instancePath, body.attributeName),
   get_tags: (tools, body) => tools.getTags(body.instancePath),
   add_tag: (tools, body) => tools.addTag(body.instancePath, body.tagName),

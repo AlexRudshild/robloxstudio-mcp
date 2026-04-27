@@ -96,24 +96,18 @@ export class RobloxStudioMCPServer {
           case 'disable_feature':
             return await this.tools.disableFeature((args as any)?.name);
 
-          case 'get_file_tree':
-            return await this.tools.getFileTree((args as any)?.path || '');
-          case 'search_files':
-            return await this.tools.searchFiles((args as any)?.query as string, (args as any)?.searchType || 'name');
+          case 'search':
+            return await this.tools.search((args as any)?.query as string, (args as any)?.searchType || 'name', (args as any)?.propertyName);
 
           case 'get_place_info':
             return await this.tools.getPlaceInfo();
           case 'get_services':
             return await this.tools.getServices((args as any)?.serviceName);
-          case 'search_objects':
-            return await this.tools.searchObjects((args as any)?.query as string, (args as any)?.searchType || 'name', (args as any)?.propertyName);
 
           case 'get_instance_properties':
             return await this.tools.getInstanceProperties((args as any)?.instancePath as string, (args as any)?.excludeSource, (args as any)?.mode, (args as any)?.knownHash);
           case 'get_instance_children':
             return await this.tools.getInstanceChildren((args as any)?.instancePath as string, (args as any)?.knownHash);
-          case 'search_by_property':
-            return await this.tools.searchByProperty((args as any)?.propertyName as string, (args as any)?.propertyValue as string);
 
           case 'get_project_structure':
             return await this.tools.getProjectStructure((args as any)?.path, (args as any)?.maxDepth, (args as any)?.scriptsOnly);
@@ -168,12 +162,10 @@ export class RobloxStudioMCPServer {
           case 'delete_script_lines':
             return await this.tools.deleteScriptLines((args as any)?.instancePath as string, (args as any)?.startLine as number, (args as any)?.endLine as number);
 
-          case 'get_attribute':
-            return await this.tools.getAttribute((args as any)?.instancePath as string, (args as any)?.attributeName as string);
           case 'set_attribute':
             return await this.tools.setAttribute((args as any)?.instancePath as string, (args as any)?.attributeName as string, (args as any)?.attributeValue, (args as any)?.valueType);
           case 'get_attributes':
-            return await this.tools.getAttributes((args as any)?.instancePath as string);
+            return await this.tools.getAttributes((args as any)?.instancePath as string, (args as any)?.attributeName);
           case 'delete_attribute':
             return await this.tools.deleteAttribute((args as any)?.instancePath as string, (args as any)?.attributeName as string);
 
