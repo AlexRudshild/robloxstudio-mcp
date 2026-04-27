@@ -288,8 +288,10 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
     try {
       const response = await bridge.sendRequest(endpoint, data, target || 'edit');
+      lastProxyAt = Date.now();
       res.json({ response });
     } catch (err: any) {
+      lastProxyAt = Date.now();
       res.status(500).json({ error: err.message || 'Proxy request failed' });
     }
   });

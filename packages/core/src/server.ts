@@ -388,14 +388,25 @@ export class RobloxStudioMCPServer {
       this.bridge.cleanupStaleInstances();
     }, 5000);
 
+    // Swallow EPIPE on stdout/stderr — when the parent client closes its
+    // read end (Codex /clear, terminal close), any subsequent write would
+    // otherwise emit an uncaught error and crash the dormant primary.
+    process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+      if (err?.code !== 'EPIPE') console.error('stdout error:', err);
+    });
+    process.stderr.on('error', () => {});
+
+    let shuttingDown = false;
     const shutdown = async () => {
-      console.error('Shutting down MCP server...');
+      if (shuttingDown) return;
+      shuttingDown = true;
+      try { console.error('Shutting down MCP server...'); } catch {}
       clearInterval(activityInterval);
       clearInterval(cleanupInterval);
       if (promotionInterval) clearInterval(promotionInterval);
       await this.server.close().catch(() => {});
-      if (httpHandle) httpHandle.close();
-      if (legacyHandle) legacyHandle.close();
+      if (httpHandle) try { httpHandle.close(); } catch {}
+      if (legacyHandle) try { legacyHandle.close(); } catch {}
       process.exit(0);
     };
 
@@ -430,13 +441,31 @@ export class RobloxStudioMCPServer {
         return;
       }
 
+      // No plugin attached → dormant primary serves no purpose; exit now
+      // rather than letting a sibling waste 30 s on a doomed /proxy call.
+      if (primaryApp && !((primaryApp as any).isPluginConnected?.())) {
+        console.error('Stdin closed in primary mode but no plugin connected — shutting down');
+        shutdown();
+        return;
+      }
+
       console.error(`Stdin closed in primary mode — dormant; will exit after ${STDIN_GRACE_MS}ms idle without /proxy traffic`);
 
       const dormantWatcher = setInterval(() => {
+        if (shuttingDown) {
+          clearInterval(dormantWatcher);
+          return;
+        }
         try {
           process.kill(initialPpid, 0);
         } catch {
           console.error(`Parent process ${initialPpid} gone — shutting dormant primary`);
+          clearInterval(dormantWatcher);
+          shutdown();
+          return;
+        }
+        if (primaryApp && !((primaryApp as any).isPluginConnected?.())) {
+          console.error('Plugin disconnected from dormant primary — shutting down');
           clearInterval(dormantWatcher);
           shutdown();
           return;
