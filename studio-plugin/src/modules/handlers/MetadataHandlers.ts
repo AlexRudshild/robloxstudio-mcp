@@ -232,7 +232,8 @@ function getAttributes(requestData: Record<string, unknown>) {
 			hashParts.push(tostring(serializedAttributes[n].value));
 		}
 		const hash = Hashing.fingerprint(hashParts);
-		return { instancePath, attributes: serializedAttributes, count, hash };
+		if (count === 0) return { attributes: {}, hash };
+		return { attributes: serializedAttributes, count, hash };
 	});
 
 	if (success) {

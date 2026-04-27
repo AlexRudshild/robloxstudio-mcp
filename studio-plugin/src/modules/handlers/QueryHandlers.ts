@@ -217,7 +217,8 @@ function searchFiles(requestData: Record<string, unknown>) {
 
 	searchRecursive(game);
 
-	return { results, query, searchType, count: results.size() };
+	if (results.size() === 0) return { results: [] };
+	return { results, count: results.size() };
 }
 
 function getPlaceInfo(_requestData: Record<string, unknown>) {
@@ -312,7 +313,8 @@ function searchObjects(requestData: Record<string, unknown>) {
 
 	searchRecursive(game);
 
-	return { results, query, searchType, count: results.size() };
+	if (results.size() === 0) return { results: [] };
+	return { results, count: results.size() };
 }
 
 function getInstanceProperties(requestData: Record<string, unknown>) {
@@ -482,7 +484,8 @@ function getInstanceChildren(requestData: Record<string, unknown>) {
 	if (knownHash !== undefined && knownHash === hash) {
 		return { unchanged: true, hash };
 	}
-	return { instancePath, children, count: children.size(), hash };
+	if (children.size() === 0) return { children: [], hash };
+	return { children, count: children.size(), hash };
 }
 
 function searchByProperty(requestData: Record<string, unknown>) {
@@ -511,7 +514,8 @@ function searchByProperty(requestData: Record<string, unknown>) {
 	}
 
 	searchRecursive(game);
-	return { propertyName, propertyValue, results, count: results.size() };
+	if (results.size() === 0) return { results: [] };
+	return { results, count: results.size() };
 }
 
 function hashTree(node: Record<string, unknown>): string {
@@ -801,13 +805,18 @@ function grepScripts(requestData: Record<string, unknown>) {
 
 	searchInstance(startInstance);
 
-	return {
+	const matched = results.size();
+	if (matched === 0) {
+		return { results: [], scriptsSearched };
+	}
+	const resp: Record<string, unknown> = {
 		results,
 		totalMatches: hitLimit ? `>${maxResults}` : totalMatches,
 		scriptsSearched,
-		scriptsMatched: results.size(),
-		truncated: hitLimit,
+		scriptsMatched: matched,
 	};
+	if (hitLimit) resp.truncated = true;
+	return resp;
 }
 
 function getDescendants(requestData: Record<string, unknown>) {
@@ -849,7 +858,8 @@ function getDescendants(requestData: Record<string, unknown>) {
 		return { unchanged: true, hash };
 	}
 
-	return { instancePath, descendants, count: descendants.size(), maxDepth, hash };
+	if (descendants.size() === 0) return { descendants: [], hash };
+	return { descendants, count: descendants.size(), hash };
 }
 
 function compareInstances(requestData: Record<string, unknown>) {
@@ -943,6 +953,7 @@ function getOutputLog(requestData: Record<string, unknown>) {
 		}
 		const hash = Hashing.fingerprint(hashParts);
 
+		if (finalEntries.size() === 0) return { entries: [], hash };
 		return { entries: finalEntries, count: finalEntries.size(), totalAvailable: allEntries.size(), hash };
 	});
 
