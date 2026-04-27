@@ -217,8 +217,7 @@ function searchFiles(requestData: Record<string, unknown>) {
 
 	searchRecursive(game);
 
-	if (results.size() === 0) return { results: [] };
-	return { results, count: results.size() };
+	return { results };
 }
 
 function getPlaceInfo(_requestData: Record<string, unknown>) {
@@ -313,8 +312,7 @@ function searchObjects(requestData: Record<string, unknown>) {
 
 	searchRecursive(game);
 
-	if (results.size() === 0) return { results: [] };
-	return { results, count: results.size() };
+	return { results };
 }
 
 function getInstanceProperties(requestData: Record<string, unknown>) {
@@ -484,8 +482,7 @@ function getInstanceChildren(requestData: Record<string, unknown>) {
 	if (knownHash !== undefined && knownHash === hash) {
 		return { unchanged: true, hash };
 	}
-	if (children.size() === 0) return { children: [], hash };
-	return { children, count: children.size(), hash };
+	return { children, hash };
 }
 
 function searchByProperty(requestData: Record<string, unknown>) {
@@ -514,8 +511,7 @@ function searchByProperty(requestData: Record<string, unknown>) {
 	}
 
 	searchRecursive(game);
-	if (results.size() === 0) return { results: [] };
-	return { results, count: results.size() };
+	return { results };
 }
 
 function hashTree(node: Record<string, unknown>): string {
@@ -858,8 +854,7 @@ function getDescendants(requestData: Record<string, unknown>) {
 		return { unchanged: true, knownHash: hash };
 	}
 
-	if (descendants.size() === 0) return { descendants: [], knownHash: hash };
-	return { descendants, count: descendants.size(), knownHash: hash };
+	return { descendants, knownHash: hash };
 }
 
 function compareInstances(requestData: Record<string, unknown>) {

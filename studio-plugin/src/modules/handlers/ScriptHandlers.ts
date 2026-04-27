@@ -320,10 +320,9 @@ function setScriptSource(requestData: Record<string, unknown>) {
 		ScriptEditorService.UpdateSourceAsync(instance, () => sourceToSet);
 
 		return {
-			success: true, instancePath,
+			success: true,
 			oldSourceLength, newSourceLength: sourceToSet.size(),
 			method: "UpdateSourceAsync",
-			message: "Script source updated successfully (editor-safe)",
 			knownHash: Hashing.fingerprint(["script-source", instancePath, sourceToSet, -1, -1]),
 		};
 	});
@@ -338,10 +337,9 @@ function setScriptSource(requestData: Record<string, unknown>) {
 		(instance as unknown as { Source: string }).Source = sourceToSet;
 
 		return {
-			success: true, instancePath,
+			success: true,
 			oldSourceLength: oldSource.size(), newSourceLength: sourceToSet.size(),
 			method: "direct",
-			message: "Script source updated successfully (direct assignment)",
 		};
 	});
 
@@ -371,7 +369,6 @@ function setScriptSource(requestData: Record<string, unknown>) {
 			success: true,
 			instancePath: getInstancePath(newScript),
 			method: "replace",
-			message: "Script replaced successfully with new source",
 		};
 	});
 
@@ -610,8 +607,7 @@ function insertScriptLines(requestData: Record<string, unknown>) {
 		ScriptEditorService.UpdateSourceAsync(instance, () => newSource);
 
 		return {
-			success: true, instancePath,
-			insertedAfterLine: afterLine,
+			success: true,
 			linesInserted: newLines.size(),
 			newLineCount: resultLines.size(),
 			knownHash: Hashing.fingerprint(["script-source", instancePath, newSource, -1, -1]),
@@ -658,8 +654,7 @@ function deleteScriptLines(requestData: Record<string, unknown>) {
 		ScriptEditorService.UpdateSourceAsync(instance, () => newSource);
 
 		return {
-			success: true, instancePath,
-			deletedLines: { startLine, endLine },
+			success: true,
 			linesDeleted: endLine - startLine + 1,
 			newLineCount: resultLines.size(),
 			knownHash: Hashing.fingerprint(["script-source", instancePath, newSource, -1, -1]),
@@ -805,8 +800,6 @@ function findAndReplaceInScripts(requestData: Record<string, unknown>) {
 	return {
 		success: true,
 		dryRun,
-		pattern: searchPattern,
-		replacement,
 		totalReplacements,
 		scriptsSearched,
 		scriptsModified: changes.size(),

@@ -157,8 +157,6 @@ function getAttribute(requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		const value = instance.GetAttribute(attributeName);
 		return {
-			instancePath,
-			attributeName,
 			value: serializeValue(value),
 			valueType: typeOf(value),
 			exists: value !== undefined,
@@ -186,11 +184,7 @@ function setAttribute(requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		const value = deserializeValue(attributeValue, valueType);
 		instance.SetAttribute(attributeName, value as AttributeValue);
-
-		return {
-			success: true, instancePath, attributeName,
-			value: attributeValue,
-		};
+		return { success: true };
 	});
 
 	if (success) {
@@ -261,11 +255,7 @@ function deleteAttribute(requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		const existed = instance.GetAttribute(attributeName) !== undefined;
 		instance.SetAttribute(attributeName, undefined);
-
-		return {
-			success: true, instancePath, attributeName, existed,
-			message: existed ? "Attribute deleted successfully" : "Attribute did not exist",
-		};
+		return { success: true, existed };
 	});
 
 	if (success) {
@@ -285,7 +275,7 @@ function getTags(requestData: Record<string, unknown>) {
 
 	const [success, result] = pcall(() => {
 		const tags = CollectionService.GetTags(instance);
-		return { instancePath, tags, count: tags.size() };
+		return { tags };
 	});
 
 	if (success) return result;
@@ -307,11 +297,7 @@ function addTag(requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		const alreadyHad = CollectionService.HasTag(instance, tagName);
 		CollectionService.AddTag(instance, tagName);
-
-		return {
-			success: true, instancePath, tagName, alreadyHad,
-			message: alreadyHad ? "Instance already had this tag" : "Tag added successfully",
-		};
+		return { success: true, alreadyHad };
 	});
 
 	if (success) {
@@ -337,11 +323,7 @@ function removeTag(requestData: Record<string, unknown>) {
 	const [success, result] = pcall(() => {
 		const hadTag = CollectionService.HasTag(instance, tagName);
 		CollectionService.RemoveTag(instance, tagName);
-
-		return {
-			success: true, instancePath, tagName, hadTag,
-			message: hadTag ? "Tag removed successfully" : "Instance did not have this tag",
-		};
+		return { success: true, hadTag };
 	});
 
 	if (success) {
@@ -364,7 +346,7 @@ function getTagged(requestData: Record<string, unknown>) {
 			path: getInstancePath(instance),
 		}));
 
-		return { tagName, instances, count: instances.size() };
+		return { instances };
 	});
 
 	if (success) return result;
@@ -375,7 +357,7 @@ function getSelection(_requestData: Record<string, unknown>) {
 	const selection = Selection.Get();
 
 	if (selection.size() === 0) {
-		return { success: true, selection: [], count: 0, message: "No objects selected" };
+		return { success: true, selection: [] };
 	}
 
 	const selectedObjects = selection.map((instance: Instance) => ({
@@ -388,8 +370,6 @@ function getSelection(_requestData: Record<string, unknown>) {
 	return {
 		success: true,
 		selection: selectedObjects,
-		count: selection.size(),
-		message: `${selection.size()} object(s) selected`,
 	};
 }
 
@@ -519,9 +499,8 @@ function bulkSetAttributes(requestData: Record<string, unknown>) {
 	finishRecording(recordingId, successCount > 0);
 
 	return {
-		instancePath,
 		results,
-		summary: { total: successCount + failureCount, succeeded: successCount, failed: failureCount },
+		summary: { succeeded: successCount, failed: failureCount },
 	};
 }
 

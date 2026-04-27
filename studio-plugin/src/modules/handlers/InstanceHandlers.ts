@@ -59,8 +59,6 @@ function processObjectEntries(
 				successCount++;
 				results.push({
 					success: true,
-					className: entryResult.className,
-					parent: entryResult.parentPath,
 					instancePath: getInstancePath(entryResult.instance),
 					name: entryResult.instance.Name,
 				});
@@ -68,8 +66,6 @@ function processObjectEntries(
 				failureCount++;
 				results.push({
 					success: false,
-					className: entryResult.className ?? className,
-					parent: entryResult.parentPath ?? parentPath,
 					error: entryResult.error,
 				});
 			}
@@ -118,8 +114,6 @@ function createObject(requestData: Record<string, unknown>) {
 		finishRecording(recordingId, true);
 		return {
 			success: true,
-			className,
-			parent: parentPath,
 			instancePath: getInstancePath(newInstance as Instance),
 			name: (newInstance as Instance).Name,
 		};
@@ -145,7 +139,7 @@ function deleteObject(requestData: Record<string, unknown>) {
 
 	if (success) {
 		finishRecording(recordingId, true);
-		return { success: true, instancePath };
+		return { success: true };
 	} else {
 		finishRecording(recordingId, false);
 		return { error: `Failed to delete object: ${result}`, errorCode: "delete_failed", instancePath };
@@ -192,7 +186,7 @@ function massCreateObjects(requestData: Record<string, unknown>) {
 	});
 
 	finishRecording(recordingId, successCount > 0);
-	return { results, summary: { total: (objects as defined[]).size(), succeeded: successCount, failed: failureCount } };
+	return { results, summary: { succeeded: successCount, failed: failureCount } };
 }
 
 
@@ -293,8 +287,7 @@ function performSmartDuplicate(requestData: Record<string, unknown>, useRecordin
 
 	return {
 		results,
-		summary: { total: count, succeeded: successCount, failed: failureCount },
-		sourceInstance: instancePath,
+		summary: { succeeded: successCount, failed: failureCount },
 	};
 }
 
@@ -326,7 +319,7 @@ function massDuplicate(requestData: Record<string, unknown>) {
 
 	return {
 		results: allResults,
-		summary: { total: totalSuccess + totalFailures, succeeded: totalSuccess, failed: totalFailures },
+		summary: { succeeded: totalSuccess, failed: totalFailures },
 	};
 }
 
@@ -359,7 +352,6 @@ function cloneObject(requestData: Record<string, unknown>) {
 			instancePath: getInstancePath(clone as Instance),
 			name: (clone as Instance).Name,
 			className: (clone as Instance).ClassName,
-			parent: targetParentPath,
 		};
 	}
 	finishRecording(recordingId, false);
@@ -392,9 +384,6 @@ function moveObject(requestData: Record<string, unknown>) {
 		return {
 			success: true,
 			instancePath: getInstancePath(instance),
-			name: instance.Name,
-			className: instance.ClassName,
-			parent: targetParentPath,
 		};
 	}
 	finishRecording(recordingId, false);

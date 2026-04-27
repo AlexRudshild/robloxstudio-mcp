@@ -1738,31 +1738,17 @@ local function processObjectEntries(objects, createFn)
 				successCount += 1
 				local _arg0 = {
 					success = true,
-					className = entryResult.className,
-					parent = entryResult.parentPath,
 					instancePath = getInstancePath(entryResult.instance),
 					name = entryResult.instance.Name,
 				}
 				table.insert(results, _arg0)
 			else
 				failureCount += 1
-				local _object = {
+				local _arg0 = {
 					success = false,
+					error = entryResult.error,
 				}
-				local _left = "className"
-				local _condition = entryResult.className
-				if _condition == nil then
-					_condition = className
-				end
-				_object[_left] = _condition
-				local _left_1 = "parent"
-				local _condition_1 = entryResult.parentPath
-				if _condition_1 == nil then
-					_condition_1 = parentPath
-				end
-				_object[_left_1] = _condition_1
-				_object.error = entryResult.error
-				table.insert(results, _object)
+				table.insert(results, _arg0)
 			end
 		end
 	end)
@@ -1818,8 +1804,6 @@ local function createObject(requestData)
 		finishRecording(recordingId, true)
 		return {
 			success = true,
-			className = className,
-			parent = parentPath,
 			instancePath = getInstancePath(newInstance),
 			name = newInstance.Name,
 		}
@@ -1865,7 +1849,6 @@ local function deleteObject(requestData)
 		finishRecording(recordingId, true)
 		return {
 			success = true,
-			instancePath = instancePath,
 		}
 	else
 		finishRecording(recordingId, false)
@@ -1934,7 +1917,6 @@ local function massCreateObjects(requestData)
 	return {
 		results = results,
 		summary = {
-			total = #objects,
 			succeeded = successCount,
 			failed = failureCount,
 		},
@@ -2110,11 +2092,9 @@ local function performSmartDuplicate(requestData, useRecording)
 	return {
 		results = results,
 		summary = {
-			total = count,
 			succeeded = successCount,
 			failed = failureCount,
 		},
-		sourceInstance = instancePath,
 	}
 end
 local function smartDuplicate(requestData)
@@ -2144,7 +2124,6 @@ local function massDuplicate(requestData)
 	return {
 		results = allResults,
 		summary = {
-			total = totalSuccess + totalFailures,
 			succeeded = totalSuccess,
 			failed = totalFailures,
 		},
@@ -2188,7 +2167,6 @@ local function cloneObject(requestData)
 			instancePath = getInstancePath(clone),
 			name = clone.Name,
 			className = clone.ClassName,
-			parent = targetParentPath,
 		}
 	end
 	finishRecording(recordingId, false)
@@ -2232,9 +2210,6 @@ local function moveObject(requestData)
 		return {
 			success = true,
 			instancePath = getInstancePath(instance),
-			name = instance.Name,
-			className = instance.ClassName,
-			parent = targetParentPath,
 		}
 	end
 	finishRecording(recordingId, false)
@@ -2696,8 +2671,6 @@ local function getAttribute(requestData)
 	local success, result = pcall(function()
 		local value = instance:GetAttribute(attributeName)
 		return {
-			instancePath = instancePath,
-			attributeName = attributeName,
 			value = serializeValue(value),
 			valueType = typeof(value),
 			exists = value ~= nil,
@@ -2736,9 +2709,6 @@ local function setAttribute(requestData)
 		instance:SetAttribute(attributeName, value)
 		return {
 			success = true,
-			instancePath = instancePath,
-			attributeName = attributeName,
-			value = attributeValue,
 		}
 	end)
 	if success then
@@ -2844,10 +2814,7 @@ local function deleteAttribute(requestData)
 		instance:SetAttribute(attributeName, nil)
 		return {
 			success = true,
-			instancePath = instancePath,
-			attributeName = attributeName,
 			existed = existed,
-			message = if existed then "Attribute deleted successfully" else "Attribute did not exist",
 		}
 	end)
 	if success then
@@ -2880,9 +2847,7 @@ local function getTags(requestData)
 	local success, result = pcall(function()
 		local tags = CollectionService:GetTags(instance)
 		return {
-			instancePath = instancePath,
 			tags = tags,
-			count = #tags,
 		}
 	end)
 	if success then
@@ -2916,10 +2881,7 @@ local function addTag(requestData)
 		CollectionService:AddTag(instance, tagName)
 		return {
 			success = true,
-			instancePath = instancePath,
-			tagName = tagName,
 			alreadyHad = alreadyHad,
-			message = if alreadyHad then "Instance already had this tag" else "Tag added successfully",
 		}
 	end)
 	if success then
@@ -2955,10 +2917,7 @@ local function removeTag(requestData)
 		CollectionService:RemoveTag(instance, tagName)
 		return {
 			success = true,
-			instancePath = instancePath,
-			tagName = tagName,
 			hadTag = hadTag,
-			message = if hadTag then "Tag removed successfully" else "Instance did not have this tag",
 		}
 	end)
 	if success then
@@ -2997,9 +2956,7 @@ local function getTagged(requestData)
 		-- ▲ ReadonlyArray.map ▲
 		local instances = _newValue
 		return {
-			tagName = tagName,
 			instances = instances,
-			count = #instances,
 		}
 	end)
 	if success then
@@ -3016,8 +2973,6 @@ local function getSelection(_requestData)
 		return {
 			success = true,
 			selection = {},
-			count = 0,
-			message = "No objects selected",
 		}
 	end
 	-- ▼ ReadonlyArray.map ▼
@@ -3038,8 +2993,6 @@ local function getSelection(_requestData)
 	return {
 		success = true,
 		selection = selectedObjects,
-		count = #selection,
-		message = `{#selection} object(s) selected`,
 	}
 end
 local function executeLuau(requestData)
@@ -3197,10 +3150,8 @@ local function bulkSetAttributes(requestData)
 	end
 	finishRecording(recordingId, successCount > 0)
 	return {
-		instancePath = instancePath,
 		results = results,
 		summary = {
-			total = successCount + failureCount,
 			succeeded = successCount,
 			failed = failureCount,
 		},
@@ -3288,9 +3239,6 @@ local function setProperty(requestData)
 		finishRecording(recordingId, true)
 		return {
 			success = true,
-			instancePath = instancePath,
-			propertyName = propertyName,
-			propertyValue = propertyValue,
 		}
 	else
 		finishRecording(recordingId, false)
@@ -3342,8 +3290,6 @@ local function massSetProperty(requestData)
 				local _arg0 = {
 					path = path,
 					success = true,
-					propertyName = propertyName,
-					propertyValue = propertyValue,
 				}
 				table.insert(results, _arg0)
 			else
@@ -3370,7 +3316,6 @@ local function massSetProperty(requestData)
 	return {
 		results = results,
 		summary = {
-			total = #paths,
 			succeeded = successCount,
 			failed = failureCount,
 		},
@@ -3396,7 +3341,6 @@ local function massGetProperty(requestData)
 				local _arg0 = {
 					path = path,
 					success = true,
-					propertyName = propertyName,
 					propertyValue = value,
 				}
 				table.insert(results, _arg0)
@@ -3420,7 +3364,6 @@ local function massGetProperty(requestData)
 	end
 	return {
 		results = results,
-		propertyName = propertyName,
 	}
 end
 local function setProperties(requestData)
@@ -3483,9 +3426,7 @@ local function setProperties(requestData)
 	end
 	finishRecording(recordingId, successCount > 0)
 	return {
-		instancePath = instancePath,
 		summary = {
-			total = successCount + failureCount,
 			succeeded = successCount,
 			failed = failureCount,
 		},
@@ -3808,14 +3749,8 @@ local function searchFiles(requestData)
 		end
 	end
 	searchRecursive(game)
-	if #results == 0 then
-		return {
-			results = {},
-		}
-	end
 	return {
 		results = results,
-		count = #results,
 	}
 end
 local function getPlaceInfo(_requestData)
@@ -3926,14 +3861,8 @@ local function searchObjects(requestData)
 		end
 	end
 	searchRecursive(game)
-	if #results == 0 then
-		return {
-			results = {},
-		}
-	end
 	return {
 		results = results,
-		count = #results,
 	}
 end
 local function getInstanceProperties(requestData)
@@ -4161,15 +4090,8 @@ local function getInstanceChildren(requestData)
 			hash = hash,
 		}
 	end
-	if #children == 0 then
-		return {
-			children = {},
-			hash = hash,
-		}
-	end
 	return {
 		children = children,
-		count = #children,
 		hash = hash,
 	}
 end
@@ -4207,14 +4129,8 @@ local function searchByProperty(requestData)
 		end
 	end
 	searchRecursive(game)
-	if #results == 0 then
-		return {
-			results = {},
-		}
-	end
 	return {
 		results = results,
-		count = #results,
 	}
 end
 local function hashTree(node)
@@ -4721,15 +4637,8 @@ local function getDescendants(requestData)
 			knownHash = hash,
 		}
 	end
-	if #descendants == 0 then
-		return {
-			descendants = {},
-			knownHash = hash,
-		}
-	end
 	return {
 		descendants = descendants,
-		count = #descendants,
 		knownHash = hash,
 	}
 end
@@ -5304,11 +5213,9 @@ local function setScriptSource(requestData)
 		end)
 		return {
 			success = true,
-			instancePath = instancePath,
 			oldSourceLength = oldSourceLength,
 			newSourceLength = #sourceToSet,
 			method = "UpdateSourceAsync",
-			message = "Script source updated successfully (editor-safe)",
 			knownHash = Hashing.fingerprint({ "script-source", instancePath, sourceToSet, -1, -1 }),
 		}
 	end)
@@ -5321,11 +5228,9 @@ local function setScriptSource(requestData)
 		instance.Source = sourceToSet
 		return {
 			success = true,
-			instancePath = instancePath,
 			oldSourceLength = #oldSource,
 			newSourceLength = #sourceToSet,
 			method = "direct",
-			message = "Script source updated successfully (direct assignment)",
 		}
 	end)
 	if directSuccess then
@@ -5350,7 +5255,6 @@ local function setScriptSource(requestData)
 			success = true,
 			instancePath = getInstancePath(newScript),
 			method = "replace",
-			message = "Script replaced successfully with new source",
 		}
 	end)
 	if replaceSuccess then
@@ -5672,8 +5576,6 @@ local function insertScriptLines(requestData)
 		end)
 		return {
 			success = true,
-			instancePath = instancePath,
-			insertedAfterLine = afterLine,
 			linesInserted = #newLines,
 			newLineCount = #resultLines,
 			knownHash = Hashing.fingerprint({ "script-source", instancePath, newSource, -1, -1 }),
@@ -5757,11 +5659,6 @@ local function deleteScriptLines(requestData)
 		end)
 		return {
 			success = true,
-			instancePath = instancePath,
-			deletedLines = {
-				startLine = startLine,
-				endLine = endLine,
-			},
 			linesDeleted = endLine - startLine + 1,
 			newLineCount = #resultLines,
 			knownHash = Hashing.fingerprint({ "script-source", instancePath, newSource, -1, -1 }),
@@ -5935,8 +5832,6 @@ local function findAndReplaceInScripts(requestData)
 	return {
 		success = true,
 		dryRun = dryRun,
-		pattern = searchPattern,
-		replacement = replacement,
 		totalReplacements = totalReplacements,
 		scriptsSearched = scriptsSearched,
 		scriptsModified = #changes,

@@ -47,12 +47,7 @@ function setProperty(requestData: Record<string, unknown>) {
 
 	if (success) {
 		finishRecording(recordingId, true);
-		return {
-			success: true,
-			instancePath,
-			propertyName,
-			propertyValue,
-		};
+		return { success: true };
 	} else {
 		finishRecording(recordingId, false);
 		return { error: `Failed to set property: ${result}. Property may be read-only, missing on this class, or expect a different type.`, errorCode: "property_write_failed", instancePath, propertyName };
@@ -94,7 +89,7 @@ function massSetProperty(requestData: Record<string, unknown>) {
 			});
 			if (success) {
 				successCount++;
-				results.push({ path, success: true, propertyName, propertyValue });
+				results.push({ path, success: true });
 			} else {
 				failureCount++;
 				results.push({ path, success: false, error: tostring(err) });
@@ -109,7 +104,7 @@ function massSetProperty(requestData: Record<string, unknown>) {
 
 	return {
 		results,
-		summary: { total: paths.size(), succeeded: successCount, failed: failureCount },
+		summary: { succeeded: successCount, failed: failureCount },
 	};
 }
 
@@ -128,7 +123,7 @@ function massGetProperty(requestData: Record<string, unknown>) {
 		if (instance) {
 			const [success, value] = pcall(() => (instance as unknown as Record<string, unknown>)[propertyName]);
 			if (success) {
-				results.push({ path, success: true, propertyName, propertyValue: value });
+				results.push({ path, success: true, propertyValue: value });
 			} else {
 				results.push({ path, success: false, error: tostring(value) });
 			}
@@ -137,7 +132,7 @@ function massGetProperty(requestData: Record<string, unknown>) {
 		}
 	}
 
-	return { results, propertyName };
+	return { results };
 }
 
 function setProperties(requestData: Record<string, unknown>) {
@@ -187,8 +182,7 @@ function setProperties(requestData: Record<string, unknown>) {
 	finishRecording(recordingId, successCount > 0);
 
 	return {
-		instancePath,
-		summary: { total: successCount + failureCount, succeeded: successCount, failed: failureCount },
+		summary: { succeeded: successCount, failed: failureCount },
 		results,
 	};
 }
