@@ -1,13 +1,101 @@
 export type ToolCategory = 'read' | 'write';
+export type ToolFeature =
+  | 'core'
+  | 'meta'
+  | 'inspection_plus'
+  | 'scripting_plus'
+  | 'mutation_plus'
+  | 'metadata'
+  | 'builds'
+  | 'assets'
+  | 'playtest'
+  | 'capture';
 
 export interface ToolDefinition {
   name: string;
   description: string;
   category: ToolCategory;
+  /** Feature group. Omit = 'core' (always loaded). */
+  feature?: ToolFeature;
   inputSchema: object;
 }
 
+export function getToolFeature(t: ToolDefinition): ToolFeature {
+  return t.feature ?? 'core';
+}
+
+export interface FeatureDescriptor {
+  name: ToolFeature;
+  description: string;
+  alwaysOn: boolean;
+}
+
+export const FEATURE_DESCRIPTORS: FeatureDescriptor[] = [
+  { name: 'core', description: 'Core inspection, mutation, scripting (always loaded)', alwaysOn: true },
+  { name: 'meta', description: 'Meta-tools to discover and load other features (always loaded)', alwaysOn: true },
+  { name: 'inspection_plus', description: 'Extended inspection: descendants traversal, mass property reads, class info, instance comparison, output log', alwaysOn: false },
+  { name: 'scripting_plus', description: 'Extended script editing: insert/delete lines, syntax analysis, project-wide find/replace', alwaysOn: false },
+  { name: 'mutation_plus', description: 'Bulk creation and duplication: mass_create_objects, smart/mass duplicate, redo, create_ui_tree', alwaysOn: false },
+  { name: 'metadata', description: 'Attributes and CollectionService tags', alwaysOn: false },
+  { name: 'builds', description: 'Build library: procedurally generate, export, import builds and scenes; material search', alwaysOn: false },
+  { name: 'assets', description: 'Roblox marketplace: search assets, get details, insert, upload decals', alwaysOn: false },
+  { name: 'playtest', description: 'Run/stop playtests and read playtest output', alwaysOn: false },
+  { name: 'capture', description: 'Screenshots, simulated mouse/keyboard input, character pathfinding', alwaysOn: false },
+];
+
+export const ALWAYS_ON_FEATURES: ToolFeature[] = FEATURE_DESCRIPTORS.filter(f => f.alwaysOn).map(f => f.name);
+
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
+  // === Meta (always loaded) ===
+  {
+    name: 'list_features',
+    category: 'read',
+    feature: 'meta',
+    description: 'List loadable feature blocks with descriptions and current enabled state. Call this when the user mentions a domain (builds, marketplace assets, playtest, screenshots, attributes/tags, mass operations) and you do not see a matching tool — then enable_feature to load.',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'enable_feature',
+    category: 'read',
+    feature: 'meta',
+    description: 'Activate a feature block so its tools become available. After this returns, re-list tools (the client will refresh automatically) and call the new tool on your NEXT turn — same-turn calls may race the refresh. Pass a single name or an array.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          oneOf: [
+            { type: 'string' },
+            { type: 'array', items: { type: 'string' } }
+          ],
+          description: 'Feature name or array of names (e.g. "builds", ["playtest","capture"])'
+        }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'disable_feature',
+    category: 'read',
+    feature: 'meta',
+    description: 'Deactivate a feature block to free LLM context. core and meta cannot be disabled.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          oneOf: [
+            { type: 'string' },
+            { type: 'array', items: { type: 'string' } }
+          ],
+          description: 'Feature name or array of names'
+        }
+      },
+      required: ['name']
+    }
+  },
+
   // === File & Instance Browsing ===
   {
     name: 'get_file_tree',
@@ -143,6 +231,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'search_by_property',
+    feature: 'inspection_plus',
     category: 'read',
     description: 'Find objects with specific property values',
     inputSchema: {
@@ -162,6 +251,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'get_class_info',
+    feature: 'inspection_plus',
     category: 'read',
     description: 'Get properties/methods for a class',
     inputSchema: {
@@ -225,6 +315,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'mass_set_property',
+    feature: 'mutation_plus',
     category: 'write',
     description: 'Set a property on multiple instances',
     inputSchema: {
@@ -248,6 +339,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'mass_get_property',
+    feature: 'inspection_plus',
     category: 'read',
     description: 'Get a property from multiple instances',
     inputSchema: {
@@ -316,6 +408,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'create_ui_tree',
+    feature: 'mutation_plus',
     category: 'write',
     description: 'Create an entire instance hierarchy from a nested JSON tree in one call.',
     inputSchema: {
@@ -346,6 +439,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'mass_create_objects',
+    feature: 'mutation_plus',
     category: 'write',
     description: 'Create multiple instances. Each can have optional properties.',
     inputSchema: {
@@ -400,6 +494,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Duplication ===
   {
     name: 'smart_duplicate',
+    feature: 'mutation_plus',
     category: 'write',
     description: 'Duplicate with naming, positioning, and property variations',
     inputSchema: {
@@ -452,6 +547,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'mass_duplicate',
+    feature: 'mutation_plus',
     category: 'write',
     description: 'Batch smart_duplicate operations',
     inputSchema: {
@@ -605,6 +701,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'insert_script_lines',
+    feature: 'scripting_plus',
     category: 'write',
     description: 'Insert lines after a given line number (0 = beginning).',
     inputSchema: {
@@ -628,6 +725,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'delete_script_lines',
+    feature: 'scripting_plus',
     category: 'write',
     description: 'Delete a range of lines. 1-indexed, inclusive.',
     inputSchema: {
@@ -653,6 +751,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Attributes ===
   {
     name: 'get_attribute',
+    feature: 'metadata',
     category: 'read',
     description: 'Get an attribute value',
     inputSchema: {
@@ -672,6 +771,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'set_attribute',
+    feature: 'metadata',
     category: 'write',
     description: 'Set an attribute. Supports primitives, Vector3, Color3, UDim2, BrickColor.',
     inputSchema: {
@@ -698,6 +798,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'get_attributes',
+    feature: 'metadata',
     category: 'read',
     description: 'Get all attributes on an instance',
     inputSchema: {
@@ -713,6 +814,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'delete_attribute',
+    feature: 'metadata',
     category: 'write',
     description: 'Delete an attribute',
     inputSchema: {
@@ -734,6 +836,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Tags ===
   {
     name: 'get_tags',
+    feature: 'metadata',
     category: 'read',
     description: 'Get all tags on an instance',
     inputSchema: {
@@ -749,6 +852,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'add_tag',
+    feature: 'metadata',
     category: 'write',
     description: 'Add a tag',
     inputSchema: {
@@ -768,6 +872,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'remove_tag',
+    feature: 'metadata',
     category: 'write',
     description: 'Remove a tag',
     inputSchema: {
@@ -787,6 +892,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'get_tagged',
+    feature: 'metadata',
     category: 'read',
     description: 'Get all instances with a specific tag',
     inputSchema: {
@@ -886,6 +992,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Playtest ===
   {
     name: 'start_playtest',
+    feature: 'playtest',
     category: 'read',
     description: 'Start playtest. Captures print/warn/error via LogService. Poll with get_playtest_output, end with stop_playtest. Use numPlayers for multi-client testing (server + N clients).',
     inputSchema: {
@@ -906,6 +1013,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'stop_playtest',
+    feature: 'playtest',
     category: 'read',
     description: 'Stop playtest and return all captured output.',
     inputSchema: {
@@ -915,6 +1023,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'get_playtest_output',
+    feature: 'playtest',
     category: 'read',
     description: 'Poll output buffer without stopping. Returns isRunning and captured messages.',
     inputSchema: {
@@ -931,6 +1040,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Multi-Instance ===
   {
     name: 'get_connected_instances',
+    feature: 'playtest',
     category: 'read',
     description: 'List all connected plugin instances with their roles. Use during multi-client playtest to discover server and client instances for targeted commands.',
     inputSchema: {
@@ -951,6 +1061,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'redo',
+    feature: 'mutation_plus',
     category: 'write',
     description: 'Redo the last undone change in Roblox Studio. Uses ChangeHistoryService to reapply the most recently undone operation.',
     inputSchema: {
@@ -962,6 +1073,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Build Library ===
   {
     name: 'export_build',
+    feature: 'builds',
     category: 'read',
     description: 'Export a Model/Folder to compact build JSON in the local library (build-library/{style}/{id}.json). Output has a palette (BrickColor+Material → short keys) and parts with positions relative to bounding box center.',
     inputSchema: {
@@ -986,6 +1098,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'create_build',
+    feature: 'builds',
     category: 'write',
     description: 'Create a build from scratch and save to the library. Parts: object form {position,size,rotation,paletteKey,shape?,transparency?} or tuple [posX,posY,posZ,sizeX,sizeY,sizeZ,rotX,rotY,rotZ,paletteKey,shape?,transparency?]. Palette maps keys to [BrickColor, Material] pairs.',
     inputSchema: {
@@ -1041,6 +1154,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'generate_build',
+    feature: 'builds',
     category: 'write',
     description: `Procedurally generate a build via JS code. Generate the entire scene in ONE call. Prefer high-level primitives over manual loops. No comments, no extra vars.
 EDITING: call get_build first, then change only what the user asked.
@@ -1099,6 +1213,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'import_build',
+    feature: 'builds',
     category: 'write',
     description: 'Import a build into Roblox Studio. Accepts either a full build data object OR a library ID string (e.g. "medieval/church_01") to load from the build library. When using generate_build or create_build, pass the build ID string instead of the full data.',
     inputSchema: {
@@ -1122,6 +1237,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'list_library',
+    feature: 'builds',
     category: 'read',
     description: 'List available builds in the local build library. Returns build IDs, styles, bounds, and part counts. Optionally filter by style.',
     inputSchema: {
@@ -1137,6 +1253,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'search_materials',
+    feature: 'builds',
     category: 'read',
     description: 'Search for MaterialVariant instances in MaterialService by name. Use this to find custom materials before using them in generate_build or create_build palettes. Returns material names and their base material types.',
     inputSchema: {
@@ -1155,6 +1272,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'get_build',
+    feature: 'builds',
     category: 'read',
     description: 'Get a build from the library by ID. Returns metadata, palette, and generator code (if the build was created with generate_build). IMPORTANT: When the user asks to modify an existing build, ALWAYS call get_build first to retrieve the original code, then make targeted edits to only the relevant lines, and call generate_build with the modified code. Never rewrite the entire code from scratch — only change what the user asked to change.',
     inputSchema: {
@@ -1170,6 +1288,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'import_scene',
+    feature: 'builds',
     category: 'write',
     description: 'Import a full scene layout. Provide a scene with model references (resolved from library) and placement data. Each model is placed at the specified position/rotation. Can also include inline custom builds.',
     inputSchema: {
@@ -1242,6 +1361,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Asset Tools ===
   {
     name: 'search_assets',
+    feature: 'assets',
     category: 'read',
     description: 'Search the Creator Store (Roblox marketplace) for assets by type and keywords. Requires ROBLOX_OPEN_CLOUD_API_KEY env var (no cookie auth for this endpoint).',
     inputSchema: {
@@ -1275,6 +1395,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'get_asset_details',
+    feature: 'assets',
     category: 'read',
     description: 'Get detailed marketplace metadata for a specific asset. Uses ROBLOX_OPEN_CLOUD_API_KEY or falls back to ROBLOSECURITY cookie (own assets only).',
     inputSchema: {
@@ -1290,6 +1411,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'get_asset_thumbnail',
+    feature: 'assets',
     category: 'read',
     description: 'Get the thumbnail image for an asset as base64 PNG, suitable for vision LLMs. Thumbnails API is public but asset validation uses ROBLOX_OPEN_CLOUD_API_KEY.',
     inputSchema: {
@@ -1310,6 +1432,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'insert_asset',
+    feature: 'assets',
     category: 'write',
     description: 'Insert a Roblox asset into Studio by loading it via AssetService and parenting it to a target location. Optionally set position.',
     inputSchema: {
@@ -1338,6 +1461,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'preview_asset',
+    feature: 'assets',
     category: 'read',
     description: 'Preview a Roblox asset without permanently inserting it. Loads the asset, builds a hierarchy tree with properties and summary stats, then destroys it. Useful for inspecting asset contents before insertion.',
     inputSchema: {
@@ -1361,6 +1485,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'upload_decal',
+    feature: 'assets',
     category: 'write',
     description: 'Upload an image file as a Decal asset to Roblox. Supports ROBLOSECURITY cookie auth (recommended, simpler) or ROBLOX_OPEN_CLOUD_API_KEY (needs asset:write scope + creator ID). Cookie auth is used automatically when ROBLOSECURITY is set.',
     inputSchema: {
@@ -1392,6 +1517,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'capture_screenshot',
+    feature: 'capture',
     category: 'read',
     description: 'Capture a screenshot of the Roblox Studio viewport and return it as a PNG image. Requires EditableImage API to be enabled: Game Settings > Security > "Allow Mesh / Image APIs". Only works in Edit mode with the viewport visible.',
     inputSchema: {
@@ -1403,6 +1529,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Input Simulation ===
   {
     name: 'simulate_mouse_input',
+    feature: 'capture',
     category: 'write',
     description: 'Simulate mouse input in the Roblox Studio viewport via VirtualInputManager. Use during playtest to click UI buttons, interact with objects, or navigate menus. Coordinates are viewport pixels (top-left is 0,0). Use capture_screenshot to identify UI element positions before clicking.',
     inputSchema: {
@@ -1441,6 +1568,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'simulate_keyboard_input',
+    feature: 'capture',
     category: 'write',
     description: 'Simulate keyboard input via VirtualInputManager. Use during playtest for character movement (W/A/S/D), jumping (Space), interactions (E), or any key-driven action. For sustained movement, use "press" to hold and "release" to let go.',
     inputSchema: {
@@ -1471,6 +1599,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Character Navigation ===
   {
     name: 'character_navigation',
+    feature: 'capture',
     category: 'write',
     description: 'Move the player character to a target position or instance during playtest. Uses PathfindingService for automatic navigation around obstacles, falling back to direct movement. Requires an active playtest in "play" mode. Does NOT simulate player input — moves the character directly.',
     inputSchema: {
@@ -1563,6 +1692,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Descendants & Comparison ===
   {
     name: 'get_descendants',
+    feature: 'inspection_plus',
     category: 'read',
     description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls.',
     inputSchema: {
@@ -1586,6 +1716,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'compare_instances',
+    feature: 'inspection_plus',
     category: 'read',
     description: 'Diff two instances by comparing their properties. Useful for debugging why a duplicate behaves differently.',
     inputSchema: {
@@ -1607,6 +1738,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Output & Diagnostics ===
   {
     name: 'get_output_log',
+    feature: 'inspection_plus',
     category: 'read',
     description: 'Get the Studio output log history. Works in both edit and play mode.',
     inputSchema: {
@@ -1625,6 +1757,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   },
   {
     name: 'get_script_analysis',
+    feature: 'scripting_plus',
     category: 'read',
     description: 'Run syntax analysis on Luau scripts using loadstring. Detects compile errors with line numbers. Pass a script path to analyze one script, or a container path to analyze all scripts under it.',
     inputSchema: {
@@ -1642,6 +1775,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Bulk Attributes ===
   {
     name: 'bulk_set_attributes',
+    feature: 'metadata',
     category: 'write',
     description: 'Set multiple attributes on an instance in a single call. More efficient than repeated set_attribute calls.',
     inputSchema: {
@@ -1663,6 +1797,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
   // === Find and Replace ===
   {
     name: 'find_and_replace_in_scripts',
+    feature: 'scripting_plus',
     category: 'write',
     description: 'Find and replace text across all scripts in the game. Supports literal and Lua pattern matching. Use dryRun to preview changes before applying. Pairs with grep_scripts for search-only operations.',
     inputSchema: {

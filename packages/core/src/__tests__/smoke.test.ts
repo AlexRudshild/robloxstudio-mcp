@@ -1,6 +1,7 @@
 import { BridgeService } from '../bridge-service.js';
 import { createHttpServer } from '../http-server.js';
 import { RobloxStudioTools } from '../tools/index.js';
+import { FeatureRegistry } from '../feature-registry.js';
 import request from 'supertest';
 
 describe('Smoke Tests - Connection Fixes', () => {
@@ -12,7 +13,7 @@ describe('Smoke Tests - Connection Fixes', () => {
 
   test('HTTP server should start and respond to health check', async () => {
     const bridge = new BridgeService();
-    const tools = new RobloxStudioTools(bridge);
+    const tools = new RobloxStudioTools(bridge, new FeatureRegistry([], ['core', 'meta']));
     const app = createHttpServer(tools, bridge);
 
     const response = await request(app)
@@ -41,7 +42,7 @@ describe('Smoke Tests - Connection Fixes', () => {
 
   test('Disconnect endpoint should clear pending requests', async () => {
     const bridge = new BridgeService();
-    const tools = new RobloxStudioTools(bridge);
+    const tools = new RobloxStudioTools(bridge, new FeatureRegistry([], ['core', 'meta']));
     const app = createHttpServer(tools, bridge);
 
     await request(app).post('/ready').send({ instanceId: 'test', role: 'edit' }).expect(200);
@@ -59,7 +60,7 @@ describe('Smoke Tests - Connection Fixes', () => {
 
   test('Connection states should update correctly', async () => {
     const bridge = new BridgeService();
-    const tools = new RobloxStudioTools(bridge);
+    const tools = new RobloxStudioTools(bridge, new FeatureRegistry([], ['core', 'meta']));
     const app = createHttpServer(tools, bridge) as any;
 
     expect(app.isPluginConnected()).toBe(false);

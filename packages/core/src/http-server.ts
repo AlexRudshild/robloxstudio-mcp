@@ -11,7 +11,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { RobloxStudioTools } from './tools/index.js';
 import { BridgeService } from './bridge-service.js';
-import type { ToolDefinition } from './tools/definitions.js';
+import { FeatureRegistry } from './feature-registry.js';
+import { getToolFeature, type ToolDefinition } from './tools/definitions.js';
 
 interface StreamableHttpConfig {
   name: string;
@@ -107,9 +108,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     dryRun: body.dryRun,
     maxReplacements: body.maxReplacements,
   }),
+  list_features: (tools) => tools.listFeatures(),
+  enable_feature: (tools, body) => tools.enableFeature(body.name),
+  disable_feature: (tools, body) => tools.disableFeature(body.name),
 };
 
-export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService, allowedTools?: Set<string>, serverConfig?: StreamableHttpConfig) {
+export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService, allowedTools?: Set<string>, serverConfig?: StreamableHttpConfig, features?: FeatureRegistry) {
   const app = express();
   let mcpServerActive = false;
   let lastMCPActivity = 0;
@@ -295,7 +299,9 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
   // Streamable HTTP MCP transport
   if (serverConfig) {
-    const filteredTools = serverConfig.tools.filter(t => !allowedTools || allowedTools.has(t.name));
+    const allTools = serverConfig.tools.filter(t => !allowedTools || allowedTools.has(t.name));
+    const isToolEnabled = (t: ToolDefinition) =>
+      !features || features.isEnabled(getToolFeature(t));
 
     app.post('/mcp', async (req, res) => {
       try {
@@ -303,11 +309,11 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
         const server = new Server(
           { name: serverConfig.name, version: serverConfig.version },
-          { capabilities: { tools: {} } }
+          { capabilities: { tools: { listChanged: true } } }
         );
 
         server.setRequestHandler(ListToolsRequestSchema, async () => ({
-          tools: filteredTools.map(t => ({
+          tools: allTools.filter(isToolEnabled).map(t => ({
             name: t.name,
             description: t.description,
             inputSchema: t.inputSchema,
@@ -319,6 +325,13 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
 
           if (allowedTools && !allowedTools.has(name)) {
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
+          }
+          const def = serverConfig.tools.find(t => t.name === name);
+          if (def && features && !features.isEnabled(getToolFeature(def))) {
+            throw new McpError(
+              ErrorCode.MethodNotFound,
+              `Tool '${name}' belongs to feature '${getToolFeature(def)}' which is not enabled. Call enable_feature first.`
+            );
           }
           const handler = TOOL_HANDLERS[name];
           if (!handler) {

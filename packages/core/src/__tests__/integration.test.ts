@@ -2,6 +2,7 @@ import request from 'supertest';
 import { createHttpServer } from '../http-server.js';
 import { RobloxStudioTools } from '../tools/index.js';
 import { BridgeService } from '../bridge-service.js';
+import { FeatureRegistry } from '../feature-registry.js';
 import { Application } from 'express';
 
 describe('Integration Tests', () => {
@@ -11,7 +12,8 @@ describe('Integration Tests', () => {
 
   beforeEach(() => {
     bridge = new BridgeService();
-    tools = new RobloxStudioTools(bridge);
+    const features = new FeatureRegistry([], ['core', 'meta']);
+    tools = new RobloxStudioTools(bridge, features);
     app = createHttpServer(tools, bridge);
   });
 

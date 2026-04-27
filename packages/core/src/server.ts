@@ -11,7 +11,8 @@ import { createHttpServer, listenWithRetry } from './http-server.js';
 import { RobloxStudioTools } from './tools/index.js';
 import { BridgeService } from './bridge-service.js';
 import { ProxyBridgeService } from './proxy-bridge-service.js';
-import type { ToolDefinition } from './tools/definitions.js';
+import { FeatureRegistry } from './feature-registry.js';
+import { ALWAYS_ON_FEATURES, getToolFeature, type ToolDefinition } from './tools/definitions.js';
 
 export interface ServerConfig {
   name: string;
@@ -25,10 +26,12 @@ export class RobloxStudioMCPServer {
   private bridge: BridgeService;
   private allowedToolNames: Set<string>;
   private config: ServerConfig;
+  private features: FeatureRegistry;
 
   constructor(config: ServerConfig) {
     this.config = config;
     this.allowedToolNames = new Set(config.tools.map(t => t.name));
+    this.features = new FeatureRegistry([], ALWAYS_ON_FEATURES);
 
     this.server = new Server(
       {
@@ -37,20 +40,27 @@ export class RobloxStudioMCPServer {
       },
       {
         capabilities: {
-          tools: {},
+          tools: { listChanged: true },
         },
       }
     );
 
     this.bridge = new BridgeService();
-    this.tools = new RobloxStudioTools(this.bridge);
+    this.tools = new RobloxStudioTools(this.bridge, this.features);
+    this.features.onChange(() => {
+      this.server.sendToolListChanged().catch(() => {});
+    });
     this.setupToolHandlers();
+  }
+
+  private getActiveTools(): ToolDefinition[] {
+    return this.config.tools.filter(t => this.features.isEnabled(getToolFeature(t)));
   }
 
   private setupToolHandlers() {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
-        tools: this.config.tools.map(t => ({
+        tools: this.getActiveTools().map(t => ({
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
@@ -68,8 +78,23 @@ export class RobloxStudioMCPServer {
         );
       }
 
+      const def = this.config.tools.find(t => t.name === name);
+      if (def && !this.features.isEnabled(getToolFeature(def))) {
+        throw new McpError(
+          ErrorCode.MethodNotFound,
+          `Tool '${name}' belongs to feature '${getToolFeature(def)}' which is not enabled. Call enable_feature first.`
+        );
+      }
+
       try {
         switch (name) {
+
+          case 'list_features':
+            return await this.tools.listFeatures();
+          case 'enable_feature':
+            return await this.tools.enableFeature((args as any)?.name);
+          case 'disable_feature':
+            return await this.tools.disableFeature((args as any)?.name);
 
           case 'get_file_tree':
             return await this.tools.getFileTree((args as any)?.path || '');
@@ -275,7 +300,7 @@ export class RobloxStudioMCPServer {
 
     // Try to bind as primary
     try {
-      primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
+      primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config, this.features);
       const result = await listenWithRetry(primaryApp, host, basePort, 5);
       httpHandle = result.server;
       boundPort = result.port;
@@ -287,7 +312,7 @@ export class RobloxStudioMCPServer {
       primaryApp = undefined;
       const proxyBridge = new ProxyBridgeService(`http://localhost:${basePort}`);
       this.bridge = proxyBridge;
-      this.tools = new RobloxStudioTools(this.bridge);
+      this.tools = new RobloxStudioTools(this.bridge, this.features);
       console.error(`All ports ${basePort}-${basePort + 4} in use — entering proxy mode (forwarding to localhost:${basePort})`);
 
       // Periodically try to promote to primary if the port frees up
@@ -295,8 +320,8 @@ export class RobloxStudioMCPServer {
       promotionInterval = setInterval(async () => {
         try {
           this.bridge = new BridgeService();
-          this.tools = new RobloxStudioTools(this.bridge);
-          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
+          this.tools = new RobloxStudioTools(this.bridge, this.features);
+          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config, this.features);
           const result = await listenWithRetry(primaryApp, host, basePort, 5);
           httpHandle = result.server;
           boundPort = result.port;
@@ -307,7 +332,7 @@ export class RobloxStudioMCPServer {
         } catch {
           // Still can't bind — stay in proxy mode, restore proxy bridge
           this.bridge = new ProxyBridgeService(`http://localhost:${basePort}`);
-          this.tools = new RobloxStudioTools(this.bridge);
+          this.tools = new RobloxStudioTools(this.bridge, this.features);
           primaryApp = undefined;
         }
       }, promotionIntervalMs);
@@ -318,7 +343,7 @@ export class RobloxStudioMCPServer {
     let legacyHandle: http.Server | undefined;
     let legacyApp: ReturnType<typeof createHttpServer> | undefined;
     if (boundPort !== LEGACY_PORT && bridgeMode === 'primary') {
-      legacyApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config);
+      legacyApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config, this.features);
       try {
         const result = await listenWithRetry(legacyApp, host, LEGACY_PORT, 1);
         legacyHandle = result.server;

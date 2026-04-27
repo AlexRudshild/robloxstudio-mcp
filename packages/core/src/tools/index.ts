@@ -4,6 +4,13 @@ import { runBuildExecutor } from './build-executor.js';
 import { OpenCloudClient } from '../opencloud-client.js';
 import { RobloxCookieClient } from '../roblox-cookie-client.js';
 import { rgbaToPng } from '../png-encoder.js';
+import { FeatureRegistry, type FeatureName } from '../feature-registry.js';
+import {
+  TOOL_DEFINITIONS,
+  FEATURE_DESCRIPTORS,
+  getToolFeature,
+  type ToolFeature,
+} from './definitions.js';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -33,12 +40,95 @@ export class RobloxStudioTools {
   private bridge: BridgeService;
   private openCloudClient: OpenCloudClient;
   private cookieClient: RobloxCookieClient;
+  private features: FeatureRegistry;
 
-  constructor(bridge: BridgeService) {
+  constructor(bridge: BridgeService, features: FeatureRegistry) {
     this.client = new StudioHttpClient(bridge);
     this.bridge = bridge;
     this.openCloudClient = new OpenCloudClient();
     this.cookieClient = new RobloxCookieClient();
+    this.features = features;
+  }
+
+  private toolsForFeature(feature: ToolFeature): string[] {
+    return TOOL_DEFINITIONS.filter(t => getToolFeature(t) === feature).map(t => t.name);
+  }
+
+  private normalizeFeatureNames(input: unknown): FeatureName[] {
+    if (typeof input === 'string') return [input];
+    if (Array.isArray(input)) return input.filter((v): v is string => typeof v === 'string');
+    return [];
+  }
+
+  async listFeatures() {
+    const features = FEATURE_DESCRIPTORS.map(f => ({
+      name: f.name,
+      description: f.description,
+      alwaysOn: f.alwaysOn,
+      enabled: this.features.isEnabled(f.name),
+      tools: this.toolsForFeature(f.name),
+    }));
+    const enabled = this.features.getEnabled();
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ features, enabled }),
+        },
+      ],
+    };
+  }
+
+  async enableFeature(name: unknown) {
+    const requested = this.normalizeFeatureNames(name);
+    const valid = new Set(FEATURE_DESCRIPTORS.map(f => f.name));
+    const results = requested.map(n => {
+      if (!valid.has(n as ToolFeature)) {
+        return { name: n, ok: false, error: `Unknown feature: ${n}` };
+      }
+      const changed = this.features.enable(n as ToolFeature);
+      return {
+        name: n,
+        ok: true,
+        changed,
+        toolsNowAvailable: this.toolsForFeature(n as ToolFeature),
+      };
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            results,
+            enabledFeatures: this.features.getEnabled(),
+            hint:
+              'Tools list refreshed. Call new tools on your NEXT turn — same-turn calls may race the client refresh.',
+          }),
+        },
+      ],
+    };
+  }
+
+  async disableFeature(name: unknown) {
+    const requested = this.normalizeFeatureNames(name);
+    const results = requested.map(n => {
+      if (this.features.isAlwaysOn(n)) {
+        return { name: n, ok: false, error: `Cannot disable always-on feature: ${n}` };
+      }
+      const changed = this.features.disable(n);
+      return { name: n, ok: true, changed };
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            results,
+            enabledFeatures: this.features.getEnabled(),
+          }),
+        },
+      ],
+    };
   }
 
 
