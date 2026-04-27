@@ -290,22 +290,24 @@ export class RobloxStudioMCPServer {
     let boundPort = 0;
     let promotionInterval: ReturnType<typeof setInterval> | undefined;
 
-    // Try to bind as primary
+    // Try to bind as primary on the canonical plugin port. Don't probe
+    // adjacent ports — the Studio plugin only knows the default URL, so a
+    // sibling primary on 58742 would just timeout. If 58741 is taken, fall
+    // straight to proxy mode and forward through whoever holds it.
     try {
       primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config, this.features);
-      const result = await listenWithRetry(primaryApp, host, basePort, 5);
+      const result = await listenWithRetry(primaryApp, host, basePort, 1);
       httpHandle = result.server;
       boundPort = result.port;
       console.error(`HTTP server listening on ${host}:${boundPort} for Studio plugin (primary mode)`);
       console.error(`Streamable HTTP MCP endpoint: http://localhost:${boundPort}/mcp`);
     } catch {
-      // All ports in use — fall back to proxy mode
       bridgeMode = 'proxy';
       primaryApp = undefined;
       const proxyBridge = new ProxyBridgeService(`http://localhost:${basePort}`);
       this.bridge = proxyBridge;
       this.tools = new RobloxStudioTools(this.bridge, this.features);
-      console.error(`All ports ${basePort}-${basePort + 4} in use — entering proxy mode (forwarding to localhost:${basePort})`);
+      console.error(`Port ${basePort} in use — entering proxy mode (forwarding to localhost:${basePort})`);
 
       // Periodically try to promote to primary if the port frees up
       const promotionIntervalMs = parseInt(process.env.ROBLOX_STUDIO_PROXY_PROMOTION_INTERVAL_MS || '5000');
@@ -314,7 +316,7 @@ export class RobloxStudioMCPServer {
           this.bridge = new BridgeService();
           this.tools = new RobloxStudioTools(this.bridge, this.features);
           primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config, this.features);
-          const result = await listenWithRetry(primaryApp, host, basePort, 5);
+          const result = await listenWithRetry(primaryApp, host, basePort, 1);
           httpHandle = result.server;
           boundPort = result.port;
           bridgeMode = 'primary';
