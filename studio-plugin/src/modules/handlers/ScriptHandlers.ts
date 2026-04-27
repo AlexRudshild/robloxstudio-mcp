@@ -385,55 +385,134 @@ function setScriptSource(requestData: Record<string, unknown>) {
 	};
 }
 
+function positionToLine(source: string, bytePos: number): number {
+	let line = 1;
+	let i = 1;
+	while (i < bytePos) {
+		const [nlPos] = string.find(source, "\n", i, true);
+		if (nlPos === undefined || nlPos >= bytePos) break;
+		line++;
+		i = nlPos + 1;
+	}
+	return line;
+}
+
+function findAllMatches(source: string, needle: string): number[] {
+	const positions: number[] = [];
+	let searchPos = 1;
+	const needleLen = needle.size();
+	if (needleLen === 0) return positions;
+	while (true) {
+		const [foundStart] = string.find(source, needle, searchPos, true);
+		if (foundStart === undefined) break;
+		positions.push(foundStart);
+		searchPos = foundStart + needleLen;
+		if (positions.size() > 50) break;
+	}
+	return positions;
+}
+
+function collapseWhitespace(s: string): string {
+	return s.gsub("[ \t]+", " ")[0].gsub("\n+", "\n")[0];
+}
+
 function editScriptLines(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	let oldString = requestData.old_string as string;
 	let newString = requestData.new_string as string;
 
 	if (!instancePath || oldString === undefined || newString === undefined) {
-		return { error: "Instance path, old_string, and new_string are required" };
+		return { error: "Instance path, old_string, and new_string are required", errorCode: "missing_arg" };
 	}
 
 	oldString = normalizeEscapes(oldString);
 	newString = normalizeEscapes(newString);
 
+	if (oldString === "") {
+		return { error: "old_string cannot be empty. Use insert_script_lines for inserts or set_script_source to replace the whole file.", errorCode: "empty_old_string" };
+	}
+
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
 	if (!instance.IsA("LuaSourceContainer")) {
-		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
+		return { error: `Instance is not a script: className=${instance.ClassName}`, errorCode: "not_a_script", instancePath, className: instance.ClassName };
+	}
+
+	const rawSource = readScriptSource(instance);
+	const source = rawSource.gsub("\r\n", "\n")[0].gsub("\r", "\n")[0];
+	const oldNorm = oldString.gsub("\r\n", "\n")[0].gsub("\r", "\n")[0];
+	const newNorm = newString.gsub("\r\n", "\n")[0].gsub("\r", "\n")[0];
+
+	if (oldNorm === newNorm) {
+		const sourceHash = Hashing.fingerprint([source]);
+		return { success: true, noOp: true, hash: sourceHash, note: "old_string equals new_string; no change applied." };
+	}
+
+	const matches = findAllMatches(source, oldNorm);
+
+	if (matches.size() === 0) {
+		const [sourceLines] = splitLines(source);
+		const sourceLineCount = sourceLines.size();
+		const sourceHash = Hashing.fingerprint([source]);
+
+		const fuzzyMatches = findAllMatches(collapseWhitespace(source), collapseWhitespace(oldNorm));
+		const hint = fuzzyMatches.size() === 1
+			? "Whitespace-insensitive match found at 1 location. Likely tabs/spaces or line-ending mismatch. Re-read with get_script_source(startLine,endLine) and copy verbatim."
+			: fuzzyMatches.size() > 1
+			? `Whitespace-insensitive search found ${fuzzyMatches.size()} matches but exact match found 0. Add more surrounding context.`
+			: "No similar text found at all. Verify instancePath and that you read the current source via get_script_source.";
+
+		const previewLines: string[] = [];
+		const previewCount = math.min(3, sourceLineCount);
+		for (let i = 0; i < previewCount; i++) previewLines.push(`${i + 1}: ${sourceLines[i]}`);
+
+		return {
+			error: "old_string not found in script",
+			errorCode: "edit_no_match",
+			instancePath,
+			scriptLineCount: sourceLineCount,
+			scriptHash: sourceHash,
+			fuzzyMatchCount: fuzzyMatches.size(),
+			hint,
+			scriptPreview: previewLines.join("\n"),
+		};
+	}
+
+	if (matches.size() > 1) {
+		const matchLines: number[] = [];
+		for (const pos of matches) matchLines.push(positionToLine(source, pos));
+		return {
+			error: `old_string matches at ${matches.size()} locations`,
+			errorCode: "edit_ambiguous",
+			instancePath,
+			matchLines,
+			matchCount: matches.size(),
+			hint: "Add 1-2 surrounding lines to disambiguate, or use a longer block.",
+		};
 	}
 
 	const recordingId = beginRecording(`Edit script: ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
-		const source = readScriptSource(instance);
-
-		// Count occurrences to ensure uniqueness
-		let count = 0;
-		let searchPos = 1;
-		const searchLen = oldString.size();
-
-		while (true) {
-			const [foundStart] = string.find(source, oldString, searchPos, true);
-			if (foundStart === undefined) break;
-			count++;
-			if (count > 1) break;
-			searchPos = foundStart + searchLen;
-		}
-
-		if (count === 0) error("old_string not found in script");
-		if (count > 1) error("old_string matches multiple locations. Provide more surrounding context to make it unique");
-
-		// Perform the replacement (plain literal find + replace)
-		const escaped = escapeLuaPattern(oldString);
-		const escapedRepl = escapeLuaReplacement(newString);
+		const escaped = escapeLuaPattern(oldNorm);
+		const escapedRepl = escapeLuaReplacement(newNorm);
 		const [newSource] = string.gsub(source, escaped, escapedRepl, 1);
 
 		ScriptEditorService.UpdateSourceAsync(instance, () => newSource);
 
+		const replacedAtLine = positionToLine(source, matches[0]);
+		const [oldSplit] = splitLines(oldNorm);
+		const [newSplit] = splitLines(newNorm);
+		const linesDelta = newSplit.size() - oldSplit.size();
+		const [newSourceLines] = splitLines(newSource);
+		const hash = Hashing.fingerprint([newSource]);
+
 		return {
 			success: true,
-			instancePath,
+			hash,
+			replacedAtLine,
+			linesDelta,
+			newLineCount: newSourceLines.size(),
 		};
 	});
 
@@ -442,7 +521,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		return result;
 	}
 	finishRecording(recordingId, false);
-	return { error: `Failed to edit script: ${result}` };
+	return { error: `Failed to edit script: ${result}`, errorCode: "edit_apply_failed", instancePath };
 }
 
 function insertScriptLines(requestData: Record<string, unknown>) {

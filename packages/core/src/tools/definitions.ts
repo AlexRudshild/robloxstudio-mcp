@@ -612,21 +612,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'edit_script_lines',
     category: 'write',
-    description: 'Replace exact text in a script. old_string must match exactly once in the script (whitespace-sensitive). Use get_script_source first to see current content.',
+    description: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, hash, replacedAtLine, linesDelta, newLineCount} on success. On failure returns errorCode: edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines list), or empty_old_string. Identical old/new is a no-op (returns success: true, noOp: true). For project-wide replace use find_and_replace_in_scripts; for full file rewrite use set_script_source; for inserts use insert_script_lines.',
     inputSchema: {
       type: 'object',
       properties: {
         instancePath: {
           type: 'string',
-          description: 'Script instance path'
+          description: 'Script instance path (dot notation)'
         },
         old_string: {
           type: 'string',
-          description: 'Exact text to find and replace (must be unique in the script)'
+          description: 'Exact text to find. Must be unique in the script. Whitespace and line-endings sensitive — copy from get_script_source output.'
         },
         new_string: {
           type: 'string',
-          description: 'Replacement text'
+          description: 'Replacement text.'
         }
       },
       required: ['instancePath', 'old_string', 'new_string']
