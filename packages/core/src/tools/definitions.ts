@@ -249,23 +249,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       required: ['propertyName', 'propertyValue']
     }
   },
-  {
-    name: 'get_class_info',
-    feature: 'inspection_plus',
-    category: 'read',
-    description: 'Get properties/methods for a class',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        className: {
-          type: 'string',
-          description: 'Roblox class name'
-        }
-      },
-      required: ['className']
-    }
-  },
-
   // === Project Structure ===
   {
     name: 'get_project_structure',

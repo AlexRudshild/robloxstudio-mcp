@@ -76,7 +76,6 @@ local routeMap = {
 	["/api/instance-properties"] = QueryHandlers.getInstanceProperties,
 	["/api/instance-children"] = QueryHandlers.getInstanceChildren,
 	["/api/search-by-property"] = QueryHandlers.searchByProperty,
-	["/api/class-info"] = QueryHandlers.getClassInfo,
 	["/api/project-structure"] = QueryHandlers.getProjectStructure,
 	["/api/grep-scripts"] = QueryHandlers.grepScripts,
 	["/api/get-descendants"] = QueryHandlers.getDescendants,
@@ -3687,64 +3686,6 @@ local function searchByProperty(requestData)
 		count = #results,
 	}
 end
-local function getClassInfo(requestData)
-	local className = requestData.className
-	if not (className ~= "" and className) then
-		return {
-			error = "Class name is required",
-		}
-	end
-	local success, tempInstance = pcall(function()
-		return Instance.new(className)
-	end)
-	local isService = false
-	if not success then
-		local serviceSuccess, serviceInstance = pcall(function()
-			return game:GetService(className)
-		end)
-		if serviceSuccess and serviceInstance then
-			success = true
-			tempInstance = serviceInstance
-			isService = true
-		end
-	end
-	if not success then
-		return {
-			error = `Invalid class name: {className}`,
-		}
-	end
-	local classInfo = {
-		className = className,
-		isService = isService,
-		properties = {},
-		methods = {},
-		events = {},
-	}
-	local commonProps = { "Name", "ClassName", "Parent", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
-	for _, prop in commonProps do
-		local propSuccess = pcall(function()
-			return tempInstance[prop]
-		end)
-		if propSuccess then
-			local _exp = classInfo.properties
-			table.insert(_exp, prop)
-		end
-	end
-	local commonMethods = { "Destroy", "Clone", "FindFirstChild", "FindFirstChildOfClass", "GetChildren", "IsA", "IsAncestorOf", "IsDescendantOf", "WaitForChild" }
-	for _, method in commonMethods do
-		local methodSuccess = pcall(function()
-			return tempInstance[method]
-		end)
-		if methodSuccess then
-			local _exp = classInfo.methods
-			table.insert(_exp, method)
-		end
-	end
-	if not isService then
-		tempInstance:Destroy()
-	end
-	return classInfo
-end
 local function getProjectStructure(requestData)
 	local _condition = (requestData.path)
 	if _condition == nil then
@@ -4274,7 +4215,6 @@ return {
 	getInstanceProperties = getInstanceProperties,
 	getInstanceChildren = getInstanceChildren,
 	searchByProperty = searchByProperty,
-	getClassInfo = getClassInfo,
 	getProjectStructure = getProjectStructure,
 	grepScripts = grepScripts,
 	getDescendants = getDescendants,

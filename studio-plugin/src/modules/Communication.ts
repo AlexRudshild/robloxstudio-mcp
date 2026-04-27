@@ -35,7 +35,6 @@ const routeMap: Record<string, Handler> = {
 	"/api/instance-properties": QueryHandlers.getInstanceProperties,
 	"/api/instance-children": QueryHandlers.getInstanceChildren,
 	"/api/search-by-property": QueryHandlers.searchByProperty,
-	"/api/class-info": QueryHandlers.getClassInfo,
 	"/api/project-structure": QueryHandlers.getProjectStructure,
 	"/api/grep-scripts": QueryHandlers.grepScripts,
 	"/api/get-descendants": QueryHandlers.getDescendants,

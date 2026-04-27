@@ -114,8 +114,6 @@ export class RobloxStudioMCPServer {
             return await this.tools.getInstanceChildren((args as any)?.instancePath as string, (args as any)?.knownHash);
           case 'search_by_property':
             return await this.tools.searchByProperty((args as any)?.propertyName as string, (args as any)?.propertyValue as string);
-          case 'get_class_info':
-            return await this.tools.getClassInfo((args as any)?.className as string);
 
           case 'get_project_structure':
             return await this.tools.getProjectStructure((args as any)?.path, (args as any)?.maxDepth, (args as any)?.scriptsOnly);

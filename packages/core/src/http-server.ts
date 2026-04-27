@@ -31,7 +31,6 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   get_instance_properties: (tools, body) => tools.getInstanceProperties(body.instancePath, body.excludeSource, body.mode, body.knownHash),
   get_instance_children: (tools, body) => tools.getInstanceChildren(body.instancePath, body.knownHash),
   search_by_property: (tools, body) => tools.searchByProperty(body.propertyName, body.propertyValue),
-  get_class_info: (tools, body) => tools.getClassInfo(body.className),
   get_project_structure: (tools, body) => tools.getProjectStructure(body.path, body.maxDepth, body.scriptsOnly),
   set_property: (tools, body) => tools.setProperty(body.instancePath, body.propertyName, body.propertyValue),
   set_properties: (tools, body) => tools.setProperties(body.instancePath, body.properties),

@@ -246,21 +246,6 @@ export class RobloxStudioTools {
     };
   }
 
-  async getClassInfo(className: string) {
-    if (!className) {
-      throw new Error('Class name is required for get_class_info');
-    }
-    const response = await this.client.request('/api/class-info', { className });
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
-  }
-
 
   async getProjectStructure(path?: string, maxDepth?: number, scriptsOnly?: boolean) {
     const response = await this.client.request('/api/project-structure', {

@@ -437,65 +437,6 @@ function searchByProperty(requestData: Record<string, unknown>) {
 	return { propertyName, propertyValue, results, count: results.size() };
 }
 
-function getClassInfo(requestData: Record<string, unknown>) {
-	const className = requestData.className as string;
-	if (!className) return { error: "Class name is required" };
-
-	let [success, tempInstance] = pcall(() => new Instance(className as keyof CreatableInstances));
-	let isService = false;
-
-	if (!success) {
-		const [serviceSuccess, serviceInstance] = pcall(() =>
-			game.GetService(className as keyof Services),
-		);
-		if (serviceSuccess && serviceInstance) {
-			success = true;
-			tempInstance = serviceInstance as unknown as Instance;
-			isService = true;
-		}
-	}
-
-	if (!success) return { error: `Invalid class name: ${className}` };
-
-	const classInfo: {
-		className: string;
-		isService: boolean;
-		properties: string[];
-		methods: string[];
-		events: string[];
-	} = { className, isService, properties: [], methods: [], events: [] };
-
-	const commonProps = [
-		"Name", "ClassName", "Parent", "Size", "Position", "Rotation", "CFrame",
-		"Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color",
-		"Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible",
-		"Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency",
-		"ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness",
-		"Range", "Shadows",
-	];
-
-	for (const prop of commonProps) {
-		const [propSuccess] = pcall(() => (tempInstance as unknown as Record<string, unknown>)[prop]);
-		if (propSuccess) classInfo.properties.push(prop);
-	}
-
-	const commonMethods = [
-		"Destroy", "Clone", "FindFirstChild", "FindFirstChildOfClass",
-		"GetChildren", "IsA", "IsAncestorOf", "IsDescendantOf", "WaitForChild",
-	];
-
-	for (const method of commonMethods) {
-		const [methodSuccess] = pcall(() => (tempInstance as unknown as Record<string, unknown>)[method]);
-		if (methodSuccess) classInfo.methods.push(method);
-	}
-
-	if (!isService) {
-		(tempInstance as Instance).Destroy();
-	}
-
-	return classInfo;
-}
-
 function getProjectStructure(requestData: Record<string, unknown>) {
 	const startPath = (requestData.path as string) ?? "";
 	const maxDepth = (requestData.maxDepth as number) ?? 3;
@@ -888,7 +829,6 @@ export = {
 	getInstanceProperties,
 	getInstanceChildren,
 	searchByProperty,
-	getClassInfo,
 	getProjectStructure,
 	grepScripts,
 	getDescendants,
