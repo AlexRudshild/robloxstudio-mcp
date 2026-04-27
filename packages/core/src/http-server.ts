@@ -106,6 +106,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   list_features: (tools) => tools.listFeatures(),
   enable_feature: (tools, body) => tools.enableFeature(body.name),
   disable_feature: (tools, body) => tools.disableFeature(body.name),
+  get_tool_help: (tools, body) => tools.getToolHelp(body.name),
 };
 
 export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService, allowedTools?: Set<string>, serverConfig?: StreamableHttpConfig, features?: FeatureRegistry) {

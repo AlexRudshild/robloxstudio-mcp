@@ -13,7 +13,10 @@ export type ToolFeature =
 
 export interface ToolDefinition {
   name: string;
+  /** Short description shipped in tool list. Keep concise (≤2 sentences, ≤200 chars when possible). */
   description: string;
+  /** Optional extended description with workflow chains, examples, edge cases. Available on demand via get_tool_help. */
+  descriptionLong?: string;
   category: ToolCategory;
   /** Feature group. Omit = 'core' (always loaded). */
   feature?: ToolFeature;
@@ -51,7 +54,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'list_features',
     category: 'read',
     feature: 'meta',
-    description: 'List loadable feature blocks with descriptions and current enabled state. Call this when you need a tool that is not in your current tool list — common triggers: attributes/tags (metadata), mass operations on many instances (mutation_plus), project-wide find/replace or syntax check (scripting_plus), descendants/output log (inspection_plus), playtest (playtest), screenshots/input simulation (capture), build library (builds), marketplace assets (assets). Then call enable_feature to activate.',
+    description: 'List loadable feature blocks with enabled state. Call when needed tool is missing from list. Triggers: attributes/tags (metadata), mass ops (mutation_plus), syntax check (scripting_plus), descendants/output (inspection_plus), playtest, capture, builds, assets. Then enable_feature.',
+    descriptionLong: 'List loadable feature blocks with descriptions and current enabled state. Call this when you need a tool that is not in your current tool list — common triggers: attributes/tags (metadata), mass operations on many instances (mutation_plus), project-wide find/replace or syntax check (scripting_plus), descendants/output log (inspection_plus), playtest (playtest), screenshots/input simulation (capture), build library (builds), marketplace assets (assets). Then call enable_feature to activate.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -71,6 +75,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             { type: 'array', items: { type: 'string' } }
           ],
           description: 'Feature name or array of names (e.g. "builds", ["playtest","capture"])'
+        }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'get_tool_help',
+    category: 'read',
+    feature: 'meta',
+    description: 'Get extended help for a tool: workflow chains, examples, edge cases, value-format details. Tool descriptions are kept short by default; call this for the full prose when you need deeper guidance on a specific tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Tool name to look up (e.g. "edit_script_lines")'
         }
       },
       required: ['name']
@@ -151,7 +171,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_instance_properties',
     category: 'read',
-    description: 'Get instance built-in Roblox properties (Position, Size, Color, RunContext for scripts, etc.). mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all. Returns Vector3/Color3/UDim2/CFrame as objects with _type tag. Pass knownHash to skip resending if unchanged. NOT for custom user data — use get_attributes (custom values, metadata feature) and get_tags (CollectionService tags, metadata feature) for that.',
+    description: 'Get built-in Roblox properties. mode="delta" (default, non-defaults only) or "full". Vector3/Color3/UDim2/CFrame returned as typed objects. Custom user data: use get_attributes/get_tags (metadata feature). Supports knownHash.',
+    descriptionLong: 'Get instance built-in Roblox properties (Position, Size, Color, RunContext for scripts, etc.). mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all. Returns Vector3/Color3/UDim2/CFrame as objects with _type tag. Pass knownHash to skip resending if unchanged. NOT for custom user data — use get_attributes (custom values, metadata feature) and get_tags (CollectionService tags, metadata feature) for that.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -227,7 +248,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'set_property',
     category: 'write',
-    description: 'Set ONE built-in Roblox property on ONE instance. For multiple props on one instance use set_properties (batched). For one prop on many instances use mass_set_property (mutation_plus feature). For custom user data NOT built-in props use set_attribute (metadata feature). Pass Vector3 as {X,Y,Z}, Color3 as {R,G,B}, UDim2 as {X:{Scale,Offset},Y:{Scale,Offset}}.',
+    description: 'Set ONE built-in property on ONE instance. Many props on one inst: set_properties. One prop on many: mass_set_property (mutation_plus). Custom data: set_attribute (metadata). Call get_tool_help for value formats.',
+    descriptionLong: 'Set ONE built-in Roblox property on ONE instance. For multiple props on one instance use set_properties (batched). For one prop on many instances use mass_set_property (mutation_plus feature). For custom user data NOT built-in props use set_attribute (metadata feature). Pass Vector3 as {X,Y,Z}, Color3 as {R,G,B} (0-1 range), UDim2 as {X:{Scale,Offset},Y:{Scale,Offset}}, CFrame Position as {X,Y,Z} (rotation as 9-element array under Rotation key). Enum values as full string "Enum.Material.Plastic" or short "Plastic". Instance refs (Parent, PrimaryPart): pass dot-notation path string.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -593,7 +615,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'set_script_source',
     category: 'write',
-    description: 'Replace ENTIRE script source (full rewrite). For surgical single-block edits use edit_script_lines (preferred for most cases — preserves rest of file, supports validateAfter). For project-wide find/replace use find_and_replace_in_scripts (scripting_plus). For line-based inserts/deletes use insert_script_lines/delete_script_lines (scripting_plus).',
+    description: 'Replace ENTIRE script source (full rewrite). Prefer edit_script_lines for surgical edits. Project-wide replace: find_and_replace_in_scripts (scripting_plus). Line-based: insert/delete_script_lines (scripting_plus).',
+    descriptionLong: 'Replace ENTIRE script source (full rewrite). For surgical single-block edits use edit_script_lines (preferred for most cases — preserves rest of file, supports validateAfter). For project-wide find/replace use find_and_replace_in_scripts (scripting_plus). For line-based inserts/deletes use insert_script_lines/delete_script_lines (scripting_plus).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -612,7 +635,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'edit_script_lines',
     category: 'write',
-    description: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, hash, replacedAtLine, linesDelta, newLineCount}. On failure: errorCode edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines), or empty_old_string. Identical old/new returns {success:true, noOp:true}. Pass validateAfter:true to clone+require ModuleScripts (or loadstring BaseScripts) post-edit and return validation:{ok, kind, error?}. For project-wide replace use find_and_replace_in_scripts; for full rewrite use set_script_source.',
+    description: 'Surgical text replacement in a script (whitespace-sensitive, single match). Returns hash + replacedAtLine. Pass validateAfter:true for post-edit require/syntax check. Call get_tool_help for workflow, error codes, value formats.',
+    descriptionLong: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, hash, replacedAtLine, linesDelta, newLineCount}. On failure: errorCode edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines), or empty_old_string. Identical old/new returns {success:true, noOp:true}. Pass validateAfter:true to clone+require ModuleScripts (or loadstring BaseScripts) post-edit and return validation:{ok, kind, error?}. For project-wide replace use find_and_replace_in_scripts; for full rewrite use set_script_source.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -847,7 +871,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'execute_luau',
     category: 'write',
-    description: 'Execute Luau code in plugin context. Use print()/warn() for output. Return value is JSON-encoded (tables preserved). Requires connected target — pre-validates against connected instances and fails fast with errorCode: target_not_connected if unavailable. For code validation only (syntax/require), prefer get_script_analysis (scripting_plus feature) — works without a target. For ModuleScript fresh-require validation after edits, use edit_script_lines with validateAfter:true instead of manual clone+require.',
+    description: 'Execute Luau code in plugin context. print()/warn() captured to output. Return value JSON-encoded (tables preserved). Requires connected target — fails fast with target_not_connected if unavailable. Call get_tool_help for fallback alternatives.',
+    descriptionLong: 'Execute Luau code in plugin context. Use print()/warn() for output. Return value is JSON-encoded (tables preserved). Requires connected target — pre-validates against connected instances and fails fast with errorCode: target_not_connected if unavailable. For code validation only (syntax/require), prefer get_script_analysis (scripting_plus feature) — works without a target. For ModuleScript fresh-require validation after edits, use edit_script_lines with validateAfter:true instead of manual clone+require.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1025,7 +1050,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'create_build',
     feature: 'builds',
     category: 'write',
-    description: 'Create a build from scratch and save to the library. Parts: object form {position,size,rotation,paletteKey,shape?,transparency?} or tuple [posX,posY,posZ,sizeX,sizeY,sizeZ,rotX,rotY,rotZ,paletteKey,shape?,transparency?]. Palette maps keys to [BrickColor, Material] pairs.',
+    description: 'Create a build from scratch and save to library. Parts in object or tuple form, palette maps keys to [BrickColor, Material]. Call get_tool_help for tuple layout and palette examples.',
+    descriptionLong: 'Create a build from scratch and save to the library. Parts: object form {position,size,rotation,paletteKey,shape?,transparency?} or tuple [posX,posY,posZ,sizeX,sizeY,sizeZ,rotX,rotY,rotZ,paletteKey,shape?,transparency?]. Palette maps keys to [BrickColor, Material] pairs (or [BrickColor, Material, MaterialVariant] triples). Example palette: {"a":["Dark stone grey","Concrete"],"b":["Brown","Wood","MyCustomWood"]}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1081,7 +1107,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'generate_build',
     feature: 'builds',
     category: 'write',
-    description: `Procedurally generate a build via JS code. Generate the entire scene in ONE call. Prefer high-level primitives over manual loops. No comments, no extra vars.
+    description: 'Procedurally generate a build via JS code (one call, whole scene). High-level primitives: room, roof, stairs, column, pew, arch, fence. Basic: part, rpart, wall, floor, fill, beam. Repetition: row, grid. Max 10000 parts. Call get_tool_help for full primitive reference.',
+    descriptionLong: `Procedurally generate a build via JS code. Generate the entire scene in ONE call. Prefer high-level primitives over manual loops. No comments, no extra vars.
 EDITING: call get_build first, then change only what the user asked.
 
 HIGH-LEVEL (each replaces 5-20 lines):

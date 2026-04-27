@@ -95,6 +95,8 @@ export class RobloxStudioMCPServer {
             return await this.tools.enableFeature((args as any)?.name);
           case 'disable_feature':
             return await this.tools.disableFeature((args as any)?.name);
+          case 'get_tool_help':
+            return await this.tools.getToolHelp((args as any)?.name as string);
 
           case 'search':
             return await this.tools.search((args as any)?.query as string, (args as any)?.searchType || 'name', (args as any)?.propertyName);

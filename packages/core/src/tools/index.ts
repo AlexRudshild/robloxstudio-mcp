@@ -60,6 +60,31 @@ export class RobloxStudioTools {
     return [];
   }
 
+  async getToolHelp(name: string) {
+    if (!name || typeof name !== 'string') {
+      throw new Error('Tool name is required for get_tool_help');
+    }
+    const def = TOOL_DEFINITIONS.find(t => t.name === name);
+    if (!def) {
+      const available = TOOL_DEFINITIONS.map(t => t.name).slice(0, 30).join(', ');
+      const payload = {
+        error: `Unknown tool: ${name}`,
+        errorCode: 'tool_not_found',
+        hint: `Call list_features or refresh tools list. Sample of known tools: ${available}...`,
+      };
+      return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
+    }
+    const payload = {
+      name: def.name,
+      feature: def.feature ?? 'core',
+      category: def.category,
+      description: def.description,
+      descriptionLong: def.descriptionLong ?? null,
+      inputSchema: def.inputSchema,
+    };
+    return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
+  }
+
   async listFeatures() {
     const features = FEATURE_DESCRIPTORS.map(f => ({
       name: f.name,
