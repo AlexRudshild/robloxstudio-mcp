@@ -51,7 +51,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'list_features',
     category: 'read',
     feature: 'meta',
-    description: 'List loadable feature blocks with descriptions and current enabled state. Call this when the user mentions a domain (builds, marketplace assets, playtest, screenshots, attributes/tags, mass operations) and you do not see a matching tool — then enable_feature to load.',
+    description: 'List loadable feature blocks with descriptions and current enabled state. Call this when you need a tool that is not in your current tool list — common triggers: attributes/tags (metadata), mass operations on many instances (mutation_plus), project-wide find/replace or syntax check (scripting_plus), descendants/output log (inspection_plus), playtest (playtest), screenshots/input simulation (capture), build library (builds), marketplace assets (assets). Then call enable_feature to activate.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -151,7 +151,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_instance_properties',
     category: 'read',
-    description: 'Get instance properties. mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all. Pass knownHash from a prior response to skip resending if state unchanged ({unchanged: true, hash}).',
+    description: 'Get instance built-in Roblox properties (Position, Size, Color, RunContext for scripts, etc.). mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all. Returns Vector3/Color3/UDim2/CFrame as objects with _type tag. Pass knownHash to skip resending if unchanged. NOT for custom user data — use get_attributes (custom values, metadata feature) and get_tags (CollectionService tags, metadata feature) for that.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -179,7 +179,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_instance_children',
     category: 'read',
-    description: 'Get children and their class types. Supports knownHash to skip unchanged responses.',
+    description: 'Get DIRECT children (one level only) and their class types. For full recursive traversal use get_descendants (inspection_plus feature). For overview tree use get_project_structure. Supports knownHash.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -199,7 +199,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_project_structure',
     category: 'read',
-    description: 'Get full game hierarchy tree. Increase maxDepth (default 3) for deeper traversal. Pass knownHash from a prior call to dedup unchanged trees (returns {unchanged:true, hash}).',
+    description: 'Get game hierarchy as nested tree (default depth 3). For one level only use get_instance_children (cheaper). For flat recursive list use get_descendants (inspection_plus). For finding by name/class use search. Increase maxDepth for deeper traversal. Pass knownHash to dedup unchanged trees.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -227,7 +227,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'set_property',
     category: 'write',
-    description: 'Set a property on an instance',
+    description: 'Set ONE built-in Roblox property on ONE instance. For multiple props on one instance use set_properties (batched). For one prop on many instances use mass_set_property (mutation_plus feature). For custom user data NOT built-in props use set_attribute (metadata feature). Pass Vector3 as {X,Y,Z}, Color3 as {R,G,B}, UDim2 as {X:{Scale,Offset},Y:{Scale,Offset}}.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -250,7 +250,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'mass_set_property',
     feature: 'mutation_plus',
     category: 'write',
-    description: 'Set a property on multiple instances',
+    description: 'Set ONE property on MANY instances (one prop, N instances). For many props on one instance use set_properties. For single edit use set_property. Returns per-item success/error array (not atomic).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -294,7 +294,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'set_properties',
     category: 'write',
-    description: 'Set multiple properties on a single instance in one call.',
+    description: 'Set MANY properties on ONE instance in one call (N props, one instance). For one prop on many instances use mass_set_property (mutation_plus). For single edit use set_property.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -411,7 +411,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'delete_object',
     category: 'write',
-    description: 'Delete an instance',
+    description: 'Delete an instance. Cannot delete the game root. Undoable via undo. For bulk creation use mass_create_objects (mutation_plus); no bulk delete tool — call delete_object per instance.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -593,7 +593,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'set_script_source',
     category: 'write',
-    description: 'Replace entire script source. For partial edits use edit/insert/delete_script_lines.',
+    description: 'Replace ENTIRE script source (full rewrite). For surgical single-block edits use edit_script_lines (preferred for most cases — preserves rest of file, supports validateAfter). For project-wide find/replace use find_and_replace_in_scripts (scripting_plus). For line-based inserts/deletes use insert_script_lines/delete_script_lines (scripting_plus).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -717,7 +717,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'get_attributes',
     feature: 'metadata',
     category: 'read',
-    description: 'Get attributes on an instance. Pass attributeName to read just that one (returns {value}); omit to return all attributes as a map. Pass knownHash to dedup unchanged maps.',
+    description: 'Get user-defined attributes on an instance (custom data). Different from built-in Roblox properties (use get_instance_properties) and CollectionService tags (use get_tags). Pass attributeName to read one (returns {value}); omit for all. Pass knownHash to dedup unchanged maps.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -763,7 +763,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'get_tags',
     feature: 'metadata',
     category: 'read',
-    description: 'Get all tags on an instance',
+    description: 'Get CollectionService tags on an instance (string list). Different from attributes (custom user data, see get_attributes) and properties (built-in Roblox, see get_instance_properties).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -868,7 +868,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'grep_scripts',
     category: 'read',
-    description: 'Search all script sources (literal or Lua pattern). Results grouped by script with line/column.',
+    description: 'Search across all script sources (literal or Lua pattern). Results grouped by script with line/column. Use for: finding code patterns, post-edit verification ("does old text still exist?"), locating callers/usages. For navigation by symbol use get_script_outline. For project-wide replace use find_and_replace_in_scripts (scripting_plus).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1732,7 +1732,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'find_and_replace_in_scripts',
     feature: 'scripting_plus',
     category: 'write',
-    description: 'Find and replace text across all scripts in the game. Supports literal and Lua pattern matching. Use dryRun to preview changes before applying. Pairs with grep_scripts for search-only operations.',
+    description: 'PROJECT-WIDE find/replace across many scripts. Supports literal and Lua pattern matching. Use dryRun to preview before applying. For SINGLE-script targeted edit prefer edit_script_lines (safer, returns hash + validation). Pairs with grep_scripts for search-only.',
     inputSchema: {
       type: 'object',
       properties: {
