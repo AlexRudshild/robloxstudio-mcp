@@ -84,7 +84,7 @@ export class RobloxStudioMCPServer {
             return await this.tools.searchObjects((args as any)?.query as string, (args as any)?.searchType || 'name', (args as any)?.propertyName);
 
           case 'get_instance_properties':
-            return await this.tools.getInstanceProperties((args as any)?.instancePath as string, (args as any)?.excludeSource);
+            return await this.tools.getInstanceProperties((args as any)?.instancePath as string, (args as any)?.excludeSource, (args as any)?.mode);
           case 'get_instance_children':
             return await this.tools.getInstanceChildren((args as any)?.instancePath as string);
           case 'search_by_property':

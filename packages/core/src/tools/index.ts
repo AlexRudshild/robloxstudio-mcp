@@ -108,11 +108,11 @@ export class RobloxStudioTools {
   }
 
 
-  async getInstanceProperties(instancePath: string, excludeSource?: boolean) {
+  async getInstanceProperties(instancePath: string, excludeSource?: boolean, mode?: 'delta' | 'full') {
     if (!instancePath) {
       throw new Error('Instance path is required for get_instance_properties');
     }
-    const response = await this.client.request('/api/instance-properties', { instancePath, excludeSource });
+    const response = await this.client.request('/api/instance-properties', { instancePath, excludeSource, mode });
     return {
       content: [
         {

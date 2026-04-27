@@ -2,6 +2,36 @@ import Utils from "../Utils";
 
 const { getInstancePath, getInstanceByPath, readScriptSource } = Utils;
 
+const defaultInstanceCache: Record<string, Instance | false> = {};
+
+function getDefaultInstance(className: string): Instance | undefined {
+	const cached = defaultInstanceCache[className];
+	if (cached === false) return undefined;
+	if (cached !== undefined) return cached;
+
+	const [ok, result] = pcall(() => new Instance(className as keyof CreatableInstances));
+	if (!ok) {
+		defaultInstanceCache[className] = false;
+		return undefined;
+	}
+	const inst = result as Instance;
+	inst.Parent = undefined;
+	defaultInstanceCache[className] = inst;
+	return inst;
+}
+
+function formatPropValue(val: unknown): unknown {
+	if (typeOf(val) === "UDim2") {
+		const udim = val as UDim2;
+		return {
+			X: { Scale: udim.X.Scale, Offset: udim.X.Offset },
+			Y: { Scale: udim.Y.Scale, Offset: udim.Y.Offset },
+			_type: "UDim2",
+		};
+	}
+	return tostring(val);
+}
+
 interface TreeNode {
 	name: string;
 	className: string;
@@ -193,23 +223,24 @@ function searchObjects(requestData: Record<string, unknown>) {
 function getInstanceProperties(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	const excludeSource = (requestData.excludeSource as boolean) ?? false;
+	const requestedMode = (requestData.mode as string) ?? "delta";
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
 	if (!instance) return { error: `Instance not found: ${instancePath}` };
 
+	const defaultInstance = requestedMode === "delta" ? getDefaultInstance(instance.ClassName) : undefined;
+	const effectiveMode = defaultInstance !== undefined ? "delta" : "full";
+
 	const properties: Record<string, unknown> = {};
+	let omittedDefaultCount = 0;
+
 	const [success, result] = pcall(() => {
-		const basicProps = ["Name", "ClassName", "Parent"];
-		for (const prop of basicProps) {
-			const [propSuccess, propValue] = pcall(() => {
-				const val = (instance as unknown as Record<string, unknown>)[prop];
-				if (prop === "Parent" && val) return getInstancePath(val as Instance);
-				if (val === undefined) return "nil";
-				return tostring(val);
-			});
-			if (propSuccess) properties[prop] = propValue;
-		}
+		// Identity props — always included regardless of mode.
+		properties.Name = instance.Name;
+		properties.ClassName = instance.ClassName;
+		const parentVal = instance.Parent;
+		properties.Parent = parentVal ? getInstancePath(parentVal) : "nil";
 
 		const commonProps = [
 			"Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide",
@@ -221,22 +252,22 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 		];
 
 		for (const prop of commonProps) {
-			const [propSuccess, propValue] = pcall(() => {
-				const val = (instance as unknown as Record<string, unknown>)[prop];
-				if (typeOf(val) === "UDim2") {
-					const udim = val as UDim2;
-					return {
-						X: { Scale: udim.X.Scale, Offset: udim.X.Offset },
-						Y: { Scale: udim.Y.Scale, Offset: udim.Y.Offset },
-						_type: "UDim2",
-					};
+			const [okCur, curVal] = pcall(() => (instance as unknown as Record<string, unknown>)[prop]);
+			if (!okCur) continue;
+
+			if (effectiveMode === "delta") {
+				const [okDef, defVal] = pcall(() => (defaultInstance as unknown as Record<string, unknown>)[prop]);
+				if (okDef && (curVal as defined) === (defVal as defined)) {
+					omittedDefaultCount++;
+					continue;
 				}
-				return tostring(val);
-			});
-			if (propSuccess) properties[prop] = propValue;
+			}
+
+			properties[prop] = formatPropValue(curVal);
 		}
 
 		if (instance.IsA("LuaSourceContainer")) {
+			// Source always included (model needs it; treating it as identity).
 			if (!excludeSource) {
 				properties.Source = readScriptSource(instance);
 			} else {
@@ -249,53 +280,59 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 			}
 		}
 
-		if (instance.IsA("Part")) {
-			properties.Shape = tostring(instance.Shape);
+		const classSpecific: Array<[boolean, string, () => unknown]> = [
+			[instance.IsA("Part"), "Shape", () => tostring((instance as Part).Shape)],
+			[instance.IsA("BasePart"), "TopSurface", () => tostring((instance as BasePart).TopSurface)],
+			[instance.IsA("BasePart"), "BottomSurface", () => tostring((instance as BasePart).BottomSurface)],
+			[instance.IsA("MeshPart"), "MeshId", () => tostring((instance as MeshPart).MeshId)],
+			[instance.IsA("MeshPart"), "TextureID", () => tostring((instance as MeshPart).TextureID)],
+			[instance.IsA("SpecialMesh"), "MeshId", () => tostring((instance as SpecialMesh).MeshId)],
+			[instance.IsA("SpecialMesh"), "TextureId", () => tostring((instance as SpecialMesh).TextureId)],
+			[instance.IsA("SpecialMesh"), "MeshType", () => tostring((instance as SpecialMesh).MeshType)],
+			[instance.IsA("Sound"), "SoundId", () => tostring((instance as Sound).SoundId)],
+			[instance.IsA("Sound"), "TimeLength", () => tostring((instance as Sound).TimeLength)],
+			[instance.IsA("Sound"), "IsPlaying", () => tostring((instance as Sound).IsPlaying)],
+			[instance.IsA("Animation"), "AnimationId", () => tostring((instance as Animation).AnimationId)],
+			[instance.IsA("Decal") || instance.IsA("Texture"), "Texture", () => tostring((instance as Decal | Texture).Texture)],
+			[instance.IsA("Shirt"), "ShirtTemplate", () => tostring((instance as Shirt).ShirtTemplate)],
+			[instance.IsA("Pants"), "PantsTemplate", () => tostring((instance as Pants).PantsTemplate)],
+			[instance.IsA("ShirtGraphic"), "Graphic", () => tostring((instance as ShirtGraphic).Graphic)],
+		];
+
+		for (const [applies, prop, getter] of classSpecific) {
+			if (!applies || properties[prop] !== undefined) continue;
+			const [okCur, curVal] = pcall(() => (instance as unknown as Record<string, unknown>)[prop]);
+			if (!okCur) continue;
+
+			if (effectiveMode === "delta") {
+				const [okDef, defVal] = pcall(() => (defaultInstance as unknown as Record<string, unknown>)[prop]);
+				if (okDef && (curVal as defined) === (defVal as defined)) {
+					omittedDefaultCount++;
+					continue;
+				}
+			}
+			properties[prop] = getter();
 		}
 
-		if (instance.IsA("BasePart")) {
-			properties.TopSurface = tostring(instance.TopSurface);
-			properties.BottomSurface = tostring(instance.BottomSurface);
+		const childCount = instance.GetChildren().size();
+		if (childCount > 0) {
+			properties.ChildCount = tostring(childCount);
+		} else if (effectiveMode === "delta") {
+			omittedDefaultCount++;
+		} else {
+			properties.ChildCount = "0";
 		}
-
-		if (instance.IsA("MeshPart")) {
-			properties.MeshId = tostring(instance.MeshId);
-			properties.TextureID = tostring(instance.TextureID);
-		}
-
-		if (instance.IsA("SpecialMesh")) {
-			properties.MeshId = tostring(instance.MeshId);
-			properties.TextureId = tostring(instance.TextureId);
-			properties.MeshType = tostring(instance.MeshType);
-		}
-
-		if (instance.IsA("Sound")) {
-			properties.SoundId = tostring(instance.SoundId);
-			properties.TimeLength = tostring(instance.TimeLength);
-			properties.IsPlaying = tostring(instance.IsPlaying);
-		}
-
-		if (instance.IsA("Animation")) {
-			properties.AnimationId = tostring(instance.AnimationId);
-		}
-
-		if (instance.IsA("Decal") || instance.IsA("Texture")) {
-			properties.Texture = tostring((instance as Decal | Texture).Texture);
-		}
-
-		if (instance.IsA("Shirt")) {
-			properties.ShirtTemplate = tostring(instance.ShirtTemplate);
-		} else if (instance.IsA("Pants")) {
-			properties.PantsTemplate = tostring(instance.PantsTemplate);
-		} else if (instance.IsA("ShirtGraphic")) {
-			properties.Graphic = tostring(instance.Graphic);
-		}
-
-		properties.ChildCount = tostring(instance.GetChildren().size());
 	});
 
 	if (success) {
-		return { instancePath, className: instance.ClassName, properties };
+		const resp: Record<string, unknown> = {
+			instancePath,
+			className: instance.ClassName,
+			properties,
+			mode: effectiveMode,
+		};
+		if (effectiveMode === "delta") resp.omittedDefaultCount = omittedDefaultCount;
+		return resp;
 	} else {
 		return { error: `Failed to get properties: ${result}` };
 	}
@@ -442,8 +479,6 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 		return {
 			type: "service_overview",
 			services,
-			timestamp: tick(),
-			note: "Use path parameter to explore specific locations (e.g., 'game.ServerScriptService')",
 		};
 	}
 
@@ -458,7 +493,6 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 				path: getInstancePath(instance),
 				childCount: instance.GetChildren().size(),
 				hasMore: true,
-				note: "Max depth reached - use this path to explore further",
 			};
 		}
 
@@ -527,7 +561,6 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 						name: `... ${classChildren.size() - 3} more ${cn} objects`,
 						className: "MoreIndicator",
 						path: `${getInstancePath(instance)} [${cn} children]`,
-						note: "Use specific path to explore these objects",
 					});
 				}
 			});
@@ -540,13 +573,7 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 		return node;
 	}
 
-	const result = getStructure(startInstance, 0);
-	result.requestedPath = startPath;
-	result.maxDepth = maxDepth;
-	result.scriptsOnly = showScriptsOnly;
-	result.timestamp = tick();
-
-	return result;
+	return getStructure(startInstance, 0);
 }
 
 function grepScripts(requestData: Record<string, unknown>) {
@@ -680,12 +707,10 @@ function grepScripts(requestData: Record<string, unknown>) {
 
 	return {
 		results,
-		pattern,
 		totalMatches: hitLimit ? `>${maxResults}` : totalMatches,
 		scriptsSearched,
 		scriptsMatched: results.size(),
 		truncated: hitLimit,
-		options: { caseSensitive, contextLines, usePattern, filesOnly, maxResults, maxResultsPerScript },
 	};
 }
 

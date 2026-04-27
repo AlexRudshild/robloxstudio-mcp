@@ -97,7 +97,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_instance_properties',
     category: 'read',
-    description: 'Get all properties of an instance',
+    description: 'Get instance properties. mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -108,6 +108,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         excludeSource: {
           type: 'boolean',
           description: 'For scripts, return SourceLength/LineCount instead of full source (default: false)'
+        },
+        mode: {
+          type: 'string',
+          enum: ['delta', 'full'],
+          description: 'delta = only non-defaults (default); full = include all properties'
         }
       },
       required: ['instancePath']
