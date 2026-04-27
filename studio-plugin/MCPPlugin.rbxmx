@@ -3903,7 +3903,7 @@ local function getInstanceProperties(requestData)
 		properties.ClassName = instance.ClassName
 		local parentVal = instance.Parent
 		properties.Parent = if parentVal then getInstancePath(parentVal) else "nil"
-		local commonProps = { "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows", "Face", "SurfaceType" }
+		local commonProps = { "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows", "Face", "SurfaceType" }
 		for _, prop in commonProps do
 			local okCur, curVal = pcall(function()
 				return instance[prop]
@@ -4667,7 +4667,7 @@ local function compareInstances(requestData)
 			instancePath = instancePathB,
 		}
 	end
-	local commonProps = { "Name", "ClassName", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
+	local commonProps = { "Name", "ClassName", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
 	local matching = {}
 	local differing = {}
 	local onlyA = {}
@@ -7246,6 +7246,228 @@ local function convertPropertyValue(instance, propertyName, propertyValue)
 	if type(_propertyValue) == "table" then
 		local arr = propertyValue
 		local tbl = propertyValue
+		-- _type-tagged dispatch: roundtrips formatPropValue output back to native Roblox types.
+		local typeTag = tbl._type
+		if typeTag ~= nil then
+			if typeTag == "Vector3" then
+				local _condition = (tbl.X)
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = (tbl.Y)
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				local _condition_2 = (tbl.Z)
+				if _condition_2 == nil then
+					_condition_2 = 0
+				end
+				return Vector3.new(_condition, _condition_1, _condition_2)
+			end
+			if typeTag == "Vector2" then
+				local _condition = (tbl.X)
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = (tbl.Y)
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				return Vector2.new(_condition, _condition_1)
+			end
+			if typeTag == "Color3" then
+				local _condition = (tbl.R)
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = (tbl.G)
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				local _condition_2 = (tbl.B)
+				if _condition_2 == nil then
+					_condition_2 = 0
+				end
+				return Color3.new(_condition, _condition_1, _condition_2)
+			end
+			if typeTag == "UDim2" then
+				local x = tbl.X
+				local y = tbl.Y
+				local _result = x
+				if _result ~= nil then
+					_result = _result.Scale
+				end
+				local _condition = _result
+				if _condition == nil then
+					_condition = 0
+				end
+				local _result_1 = x
+				if _result_1 ~= nil then
+					_result_1 = _result_1.Offset
+				end
+				local _condition_1 = _result_1
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				local _result_2 = y
+				if _result_2 ~= nil then
+					_result_2 = _result_2.Scale
+				end
+				local _condition_2 = _result_2
+				if _condition_2 == nil then
+					_condition_2 = 0
+				end
+				local _result_3 = y
+				if _result_3 ~= nil then
+					_result_3 = _result_3.Offset
+				end
+				local _condition_3 = _result_3
+				if _condition_3 == nil then
+					_condition_3 = 0
+				end
+				return UDim2.new(_condition, _condition_1, _condition_2, _condition_3)
+			end
+			if typeTag == "UDim" then
+				local _condition = (tbl.Scale)
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = (tbl.Offset)
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				return UDim.new(_condition, _condition_1)
+			end
+			if typeTag == "CFrame" then
+				local p = (tbl.Position) or {
+					X = 0,
+					Y = 0,
+					Z = 0,
+				}
+				local r = (tbl.Rotation) or {}
+				if #r == 9 then
+					-- Inverse of cf:GetComponents() — same row-major rotation matrix layout.
+					local _condition = p.X
+					if _condition == nil then
+						_condition = 0
+					end
+					local _condition_1 = p.Y
+					if _condition_1 == nil then
+						_condition_1 = 0
+					end
+					local _condition_2 = p.Z
+					if _condition_2 == nil then
+						_condition_2 = 0
+					end
+					local _condition_3 = r[1]
+					if _condition_3 == nil then
+						_condition_3 = 1
+					end
+					local _condition_4 = r[2]
+					if _condition_4 == nil then
+						_condition_4 = 0
+					end
+					local _condition_5 = r[3]
+					if _condition_5 == nil then
+						_condition_5 = 0
+					end
+					local _condition_6 = r[4]
+					if _condition_6 == nil then
+						_condition_6 = 0
+					end
+					local _condition_7 = r[5]
+					if _condition_7 == nil then
+						_condition_7 = 1
+					end
+					local _condition_8 = r[6]
+					if _condition_8 == nil then
+						_condition_8 = 0
+					end
+					local _condition_9 = r[7]
+					if _condition_9 == nil then
+						_condition_9 = 0
+					end
+					local _condition_10 = r[8]
+					if _condition_10 == nil then
+						_condition_10 = 0
+					end
+					local _condition_11 = r[9]
+					if _condition_11 == nil then
+						_condition_11 = 1
+					end
+					return CFrame.new(_condition, _condition_1, _condition_2, _condition_3, _condition_4, _condition_5, _condition_6, _condition_7, _condition_8, _condition_9, _condition_10, _condition_11)
+				end
+				local _condition = p.X
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = p.Y
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				local _condition_2 = p.Z
+				if _condition_2 == nil then
+					_condition_2 = 0
+				end
+				return CFrame.new(_condition, _condition_1, _condition_2)
+			end
+			if typeTag == "BrickColor" then
+				return BrickColor.new(tbl.Name)
+			end
+			if typeTag == "EnumItem" then
+				local _condition = tbl.EnumType
+				if _condition == nil then
+					_condition = ""
+				end
+				local enumTypeRaw = tostring(_condition)
+				local enumTypeName = (string.gsub(enumTypeRaw, "^Enum%.", ""))
+				local ok, enumVal = pcall(function()
+					return Enum[enumTypeName][tbl.Name]
+				end)
+				if ok and enumVal then
+					return enumVal
+				end
+			end
+			if typeTag == "NumberRange" then
+				local _condition = (tbl.Min)
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = (tbl.Max)
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				return NumberRange.new(_condition, _condition_1)
+			end
+			if typeTag == "Rect" then
+				local min = (tbl.Min) or {
+					X = 0,
+					Y = 0,
+				}
+				local max = (tbl.Max) or {
+					X = 0,
+					Y = 0,
+				}
+				local _condition = min.X
+				if _condition == nil then
+					_condition = 0
+				end
+				local _condition_1 = min.Y
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				local _condition_2 = max.X
+				if _condition_2 == nil then
+					_condition_2 = 0
+				end
+				local _condition_3 = max.Y
+				if _condition_3 == nil then
+					_condition_3 = 0
+				end
+				return Rect.new(_condition, _condition_1, _condition_2, _condition_3)
+			end
+			-- Unknown _type tag — fall through to legacy detection.
+		end
 		if type(arr) == "table" and #arr > 0 then
 			local len = #arr
 			if len == 3 then

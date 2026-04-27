@@ -340,7 +340,7 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 
 		const commonProps = [
 			"Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide",
-			"Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3",
+			"Transparency", "Material", "Color", "Text", "TextColor3",
 			"BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex",
 			"BorderSizePixel", "BackgroundTransparency", "ImageTransparency",
 			"TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows",
@@ -874,7 +874,7 @@ function compareInstances(requestData: Record<string, unknown>) {
 	const commonProps = [
 		"Name", "ClassName",
 		"Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide",
-		"Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3",
+		"Transparency", "Material", "Color", "Text", "TextColor3",
 		"BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex",
 		"BorderSizePixel", "BackgroundTransparency", "ImageTransparency",
 		"TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows",

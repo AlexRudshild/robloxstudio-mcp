@@ -194,6 +194,58 @@ async function main() {
     expectNoKey(r, 'propertyName', 'set_property: propertyName echo dropped');
     expectNoKey(r, 'propertyValue', 'set_property: propertyValue echo dropped');
     check('set_property: success=true', r.success === true, r);
+
+    // BrickColor no longer auto-included in output
+    const props = await call('get_instance_properties', { instancePath: created.instancePath, mode: 'full' });
+    expectNoKey(props.properties, 'BrickColor', 'get_instance_properties: BrickColor not auto-emitted');
+    expectKey(props.properties, 'Color', 'get_instance_properties: Color3 still emitted');
+  }
+
+  // ─── _type tagged roundtrip (CFrame, Vector3 object form) ───
+  {
+    const part = await call('create_object', { className: 'Part', parent: PARENT, name: PREFIX + 'CFrame' });
+
+    // Read CFrame, then write it back via _type tagged form
+    const before = await call('get_instance_properties', { instancePath: part.instancePath, mode: 'full' });
+    const cf = before.properties?.CFrame;
+    check('get_instance_properties: CFrame returned with _type tag', cf?._type === 'CFrame', { CFrame: cf });
+
+    if (cf) {
+      // Modify position component, write back via tagged form
+      const modified = {
+        _type: 'CFrame',
+        Position: { X: 25, Y: 10, Z: -5 },
+        Rotation: cf.Rotation,
+      };
+      const w = await call('set_property', {
+        instancePath: part.instancePath,
+        propertyName: 'CFrame',
+        propertyValue: modified,
+      });
+      check('set_property: CFrame _type tagged roundtrip succeeded', w.success === true, w);
+
+      const after = await call('get_instance_properties', { instancePath: part.instancePath, mode: 'full' });
+      check(
+        'set_property: CFrame Position written from _type form',
+        Math.abs((after.properties?.CFrame?.Position?.X ?? 0) - 25) < 0.001,
+        { Position: after.properties?.CFrame?.Position },
+      );
+    }
+
+    // Vector3 _type form (read-then-write Position)
+    const v3in = { _type: 'Vector3', X: 7, Y: 7, Z: 7 };
+    const w2 = await call('set_property', {
+      instancePath: part.instancePath,
+      propertyName: 'Position',
+      propertyValue: v3in,
+    });
+    check('set_property: Vector3 _type tagged form succeeded', w2.success === true, w2);
+    const v3out = await call('get_instance_properties', { instancePath: part.instancePath, mode: 'full' });
+    check(
+      'set_property: Vector3 _type form coerced',
+      Math.abs((v3out.properties?.Position?.X ?? 0) - 7) < 0.001,
+      { Position: v3out.properties?.Position },
+    );
   }
 
   // ─── Parent path-string resolve (set_property Parent) ───

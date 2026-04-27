@@ -105,6 +105,62 @@ function convertPropertyValue(instance: Instance, propertyName: string, property
 		const arr = propertyValue as unknown[];
 		const tbl = propertyValue as Record<string, unknown>;
 
+		// _type-tagged dispatch: roundtrips formatPropValue output back to native Roblox types.
+		const typeTag = tbl._type as string | undefined;
+		if (typeTag !== undefined) {
+			if (typeTag === "Vector3") {
+				return new Vector3((tbl.X as number) ?? 0, (tbl.Y as number) ?? 0, (tbl.Z as number) ?? 0);
+			}
+			if (typeTag === "Vector2") {
+				return new Vector2((tbl.X as number) ?? 0, (tbl.Y as number) ?? 0);
+			}
+			if (typeTag === "Color3") {
+				return new Color3((tbl.R as number) ?? 0, (tbl.G as number) ?? 0, (tbl.B as number) ?? 0);
+			}
+			if (typeTag === "UDim2") {
+				const x = tbl.X as Record<string, number>;
+				const y = tbl.Y as Record<string, number>;
+				return new UDim2(x?.Scale ?? 0, x?.Offset ?? 0, y?.Scale ?? 0, y?.Offset ?? 0);
+			}
+			if (typeTag === "UDim") {
+				return new UDim((tbl.Scale as number) ?? 0, (tbl.Offset as number) ?? 0);
+			}
+			if (typeTag === "CFrame") {
+				const p = (tbl.Position as Record<string, number>) ?? { X: 0, Y: 0, Z: 0 };
+				const r = (tbl.Rotation as number[]) ?? [];
+				if (r.size() === 9) {
+					// Inverse of cf:GetComponents() — same row-major rotation matrix layout.
+					return new CFrame(
+						p.X ?? 0, p.Y ?? 0, p.Z ?? 0,
+						r[0] ?? 1, r[1] ?? 0, r[2] ?? 0,
+						r[3] ?? 0, r[4] ?? 1, r[5] ?? 0,
+						r[6] ?? 0, r[7] ?? 0, r[8] ?? 1,
+					);
+				}
+				return new CFrame(p.X ?? 0, p.Y ?? 0, p.Z ?? 0);
+			}
+			if (typeTag === "BrickColor") {
+				return new BrickColor(tbl.Name as unknown as number);
+			}
+			if (typeTag === "EnumItem") {
+				const enumTypeRaw = tostring(tbl.EnumType ?? "");
+				const enumTypeName = enumTypeRaw.gsub("^Enum%.", "")[0];
+				const [ok, enumVal] = pcall(() => {
+					return (Enum as unknown as Record<string, Record<string, EnumItem>>)[enumTypeName][tbl.Name as string];
+				});
+				if (ok && enumVal) return enumVal;
+			}
+			if (typeTag === "NumberRange") {
+				return new NumberRange((tbl.Min as number) ?? 0, (tbl.Max as number) ?? 0);
+			}
+			if (typeTag === "Rect") {
+				const min = (tbl.Min as Record<string, number>) ?? { X: 0, Y: 0 };
+				const max = (tbl.Max as Record<string, number>) ?? { X: 0, Y: 0 };
+				return new Rect(min.X ?? 0, min.Y ?? 0, max.X ?? 0, max.Y ?? 0);
+			}
+			// Unknown _type tag — fall through to legacy detection.
+		}
+
 		if (typeIs(arr, "table") && (arr as defined[]).size() > 0) {
 			const len = (arr as defined[]).size();
 
