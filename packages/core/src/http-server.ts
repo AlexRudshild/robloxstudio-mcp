@@ -115,6 +115,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
   let lastMCPActivity = 0;
   let mcpServerStartTime = 0;
   const proxyInstances = new Set<string>();
+  let lastProxyAt = 0;
 
   const setMCPServerActive = (active: boolean) => {
     mcpServerActive = active;
@@ -283,6 +284,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
     if (proxyInstanceId) {
       proxyInstances.add(proxyInstanceId);
     }
+    lastProxyAt = Date.now();
 
     try {
       const response = await bridge.sendRequest(endpoint, data, target || 'edit');
@@ -407,6 +409,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
   (app as any).isMCPServerActive = isMCPServerActive;
   (app as any).trackMCPActivity = trackMCPActivity;
   (app as any).getLastMCPActivity = () => lastMCPActivity;
+  (app as any).getLastProxyAt = () => lastProxyAt;
 
   return app;
 }

@@ -403,40 +403,54 @@ export class RobloxStudioMCPServer {
     process.on('SIGINT', shutdown);
     process.on('SIGHUP', shutdown);
 
-    // Don't shut down on stdin close. Some MCP clients (e.g. Codex CLI)
-    // close stdin during /clear without exiting their own process and
-    // without re-spawning the server, which leaves the user without MCP
-    // until manual restart. Survive the close so the held primary lock and
-    // active Studio plugin connection stay available; a freshly spawned
-    // sibling server will join in proxy mode and forward through us.
+    // Stdin close handling: clients like Codex CLI close stdin during
+    // their /clear without exiting their own process. Conventional stdio
+    // MCP behavior (exit on EOF) breaks plugin connectivity for the user
+    // because the dying primary releases the plugin's HTTP connection.
     //
-    // Two safety nets prevent the survivor from becoming an orphan zombie:
-    //  - parent-pid watcher: exit if our parent is gone (real disconnect)
-    //  - idle timeout: exit if no plugin/MCP traffic for IDLE_EXIT_MS
+    // Conditional behavior:
+    //  - In proxy mode: stdio is our only purpose; exit immediately.
+    //  - In primary mode: enter "dormant primary" — keep HTTP alive so a
+    //    sibling spawn can join in proxy mode and forward through us. Exit
+    //    after STDIN_GRACE_MS if no /proxy traffic arrives (no sibling
+    //    needs us) or if the parent process disappears.
 
     const initialPpid = process.ppid;
+    const STDIN_GRACE_MS = parseInt(process.env.ROBLOX_STUDIO_STDIN_GRACE_MS || `${60 * 1000}`);
     const PARENT_CHECK_MS = 5000;
-    const IDLE_EXIT_MS = parseInt(process.env.ROBLOX_STUDIO_IDLE_EXIT_MS || `${30 * 60 * 1000}`);
-    let lastActivityAt = Date.now();
-    const markActivity = () => { lastActivityAt = Date.now(); };
-    process.stdin.on('data', markActivity);
+    let stdinClosed = false;
 
-    const lifecycleWatcher = setInterval(() => {
-      try {
-        process.kill(initialPpid, 0);
-      } catch {
-        console.error(`Parent process ${initialPpid} no longer exists, shutting down`);
-        clearInterval(lifecycleWatcher);
+    const handleStdinClose = () => {
+      if (stdinClosed) return;
+      stdinClosed = true;
+
+      if (bridgeMode === 'proxy') {
+        console.error('Stdin closed in proxy mode — shutting down');
         shutdown();
         return;
       }
-      const httpActivity = primaryApp ? ((primaryApp as any).getLastMCPActivity?.() as number | undefined) : undefined;
-      const newest = Math.max(lastActivityAt, httpActivity ?? 0);
-      if (Date.now() - newest > IDLE_EXIT_MS) {
-        console.error(`Idle for ${IDLE_EXIT_MS}ms, shutting down`);
-        clearInterval(lifecycleWatcher);
-        shutdown();
-      }
-    }, PARENT_CHECK_MS);
+
+      console.error(`Stdin closed in primary mode — dormant; will exit after ${STDIN_GRACE_MS}ms idle without /proxy traffic`);
+
+      const dormantWatcher = setInterval(() => {
+        try {
+          process.kill(initialPpid, 0);
+        } catch {
+          console.error(`Parent process ${initialPpid} gone — shutting dormant primary`);
+          clearInterval(dormantWatcher);
+          shutdown();
+          return;
+        }
+        const lastProxyAt = primaryApp ? ((primaryApp as any).getLastProxyAt?.() as number | undefined) ?? 0 : 0;
+        if (Date.now() - lastProxyAt > STDIN_GRACE_MS) {
+          console.error('No /proxy traffic during grace window — shutting dormant primary');
+          clearInterval(dormantWatcher);
+          shutdown();
+        }
+      }, PARENT_CHECK_MS);
+    };
+
+    process.stdin.on('end', handleStdinClose);
+    process.stdin.on('close', handleStdinClose);
   }
 }
