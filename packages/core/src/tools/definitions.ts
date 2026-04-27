@@ -1759,7 +1759,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'find_and_replace_in_scripts',
     feature: 'scripting_plus',
     category: 'write',
-    description: 'PROJECT-WIDE find/replace across many scripts. Supports literal and Lua pattern matching. Use dryRun to preview before applying. For SINGLE-script targeted edit prefer edit_script_lines (safer, returns hash + validation). Pairs with grep_scripts for search-only.',
+    description: 'PROJECT-WIDE find/replace across many scripts. Supports literal and Lua pattern matching. Use dryRun to preview before applying. For SINGLE-script targeted edit prefer edit_script_lines (safer, returns knownHash + validation). Pairs with grep_scripts for search-only.',
     inputSchema: {
       type: 'object',
       properties: {
