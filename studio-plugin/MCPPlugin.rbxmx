@@ -1889,6 +1889,7 @@ local function massCreateObjects(requestData)
 		local className = objData.className
 		local parentPath = objData.parent
 		local name = objData.name
+		local properties = (objData.properties) or {}
 		local parentInstance = getInstanceByPath(parentPath)
 		if not parentInstance then
 			return {
@@ -1902,6 +1903,12 @@ local function massCreateObjects(requestData)
 			local instance = Instance.new(className)
 			if name ~= "" and name then
 				instance.Name = name
+			end
+			for propertyName, propertyValue in pairs(properties) do
+				pcall(function()
+					local converted = convertPropertyValue(instance, propertyName, propertyValue)
+					instance[propertyName] = if converted ~= nil then converted else propertyValue
+				end)
 			end
 			instance.Parent = parentInstance
 			return instance
@@ -3313,7 +3320,22 @@ local function massSetProperty(requestData)
 		local instance = getInstanceByPath(path)
 		if instance then
 			local success, err = pcall(function()
-				instance[propertyName] = propertyValue
+				if propertyName == "Parent" or propertyName == "PrimaryPart" then
+					if type(propertyValue) == "string" then
+						local refInstance = getInstanceByPath(propertyValue)
+						if not refInstance then
+							error(`{propertyName} reference not found: {propertyValue}`)
+						end
+						instance[propertyName] = refInstance
+					end
+				elseif propertyName == "Name" then
+					instance.Name = tostring(propertyValue)
+				elseif propertyName == "Source" and instance:IsA("LuaSourceContainer") then
+					instance.Source = tostring(propertyValue)
+				else
+					local converted = convertPropertyValue(instance, propertyName, propertyValue)
+					instance[propertyName] = if converted ~= nil then converted else propertyValue
+				end
 			end)
 			if success then
 				successCount += 1

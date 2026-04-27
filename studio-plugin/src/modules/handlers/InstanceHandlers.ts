@@ -164,6 +164,7 @@ function massCreateObjects(requestData: Record<string, unknown>) {
 		const className = objData.className as string;
 		const parentPath = objData.parent as string;
 		const name = objData.name as string | undefined;
+		const properties = (objData.properties as Record<string, unknown>) ?? {};
 		const parentInstance = getInstanceByPath(parentPath);
 		if (!parentInstance) {
 			return { error: "Parent instance not found", errorCode: "parent_not_found", className, parentPath };
@@ -172,6 +173,13 @@ function massCreateObjects(requestData: Record<string, unknown>) {
 		const [success, newInstance] = pcall(() => {
 			const instance = new Instance(className as keyof CreatableInstances);
 			if (name) instance.Name = name;
+			for (const [propertyName, propertyValue] of pairs(properties)) {
+				pcall(() => {
+					const converted = convertPropertyValue(instance, propertyName as string, propertyValue);
+					(instance as unknown as { [key: string]: unknown })[propertyName as string] =
+						converted !== undefined ? converted : propertyValue;
+				});
+			}
 			instance.Parent = parentInstance;
 			return instance;
 		});

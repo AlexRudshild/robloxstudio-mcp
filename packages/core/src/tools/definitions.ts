@@ -172,7 +172,12 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'get_instance_properties',
     category: 'read',
     description: 'Get built-in Roblox properties. mode="delta" (default, non-defaults only) or "full". Vector3/Color3/UDim2/CFrame returned as typed objects. Custom user data: use get_attributes/get_tags (metadata feature). Supports knownHash.',
-    descriptionLong: 'Get instance built-in Roblox properties (Position, Size, Color, RunContext for scripts, etc.). mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all. Returns Vector3/Color3/UDim2/CFrame as objects with _type tag. Pass knownHash to skip resending if unchanged. NOT for custom user data — use get_attributes (custom values, metadata feature) and get_tags (CollectionService tags, metadata feature) for that.',
+    descriptionLong: `Get instance built-in Roblox properties (Position, Size, Color, RunContext for scripts, etc.).
+MODE: "delta" (default) returns only non-default values + omittedDefaultCount; "full" returns every readable property. Properties whose read pcall fails are silently skipped in both modes (no nil entries — absence means unreadable or default).
+PATH: dot notation only (game.Workspace.MyPart). Names containing dots are not addressable. Parent serializes as path string ("nil" if orphaned).
+COMPLEX TYPES: returned as objects with _type tag — Vector3 {X,Y,Z,_type:"Vector3"}, Color3 {R,G,B,_type:"Color3"} (0-1 range), UDim2 {X:{Scale,Offset},Y:{Scale,Offset},_type:"UDim2"}, CFrame {Position:{X,Y,Z},Rotation:[r00..r22],_type:"CFrame"}, EnumItem {Name,EnumType,Value,_type:"EnumItem"}, Instance {Path,_type:"Instance"}, BrickColor {Name,_type:"BrickColor"}, NumberRange/Rect similar.
+HASH: pass knownHash from prior call to dedup unchanged data — server returns {unchanged:true,knownHash}. After any write (set_property, edit_script_lines, etc.) the new hash differs naturally; the response of those write tools includes the new knownHash to chain forward.
+NOT for custom user data — use get_attributes / get_tags (metadata feature).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -249,7 +254,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'set_property',
     category: 'write',
     description: 'Set ONE built-in property on ONE instance. Many props on one inst: set_properties. One prop on many: mass_set_property (mutation_plus). Custom data: set_attribute (metadata). Call get_tool_help for value formats.',
-    descriptionLong: 'Set ONE built-in Roblox property on ONE instance. For multiple props on one instance use set_properties (batched). For one prop on many instances use mass_set_property (mutation_plus feature). For custom user data NOT built-in props use set_attribute (metadata feature). Pass Vector3 as {X,Y,Z}, Color3 as {R,G,B} (0-1 range), UDim2 as {X:{Scale,Offset},Y:{Scale,Offset}}, CFrame Position as {X,Y,Z} (rotation as 9-element array under Rotation key). Enum values as full string "Enum.Material.Plastic" or short "Plastic". Instance refs (Parent, PrimaryPart): pass dot-notation path string.',
+    descriptionLong: `Set ONE built-in Roblox property on ONE instance. For many props on one instance use set_properties; for one prop on many instances use mass_set_property (mutation_plus); for custom user data use set_attribute (metadata).
+PATH: dot notation only (no bracket-escape).
+INPUT VALUE FORMATS (auto-coerced to Roblox types):
+  Vector3 — array [x,y,z] (for Position/Size/Orientation/Velocity/AngularVelocity, or any property whose current value is Vector3) OR object {X,Y,Z}
+  Vector2 — array [x,y] (auto-detected by current type)
+  Color3 — array [r,g,b] 0-1 range (for Color/Color3 props) OR object {R,G,B}
+  UDim2 — array [xScale,xOffset,yScale,yOffset] (auto-detected) OR {X:{Scale,Offset},Y:{Scale,Offset}}
+  Enum — short name string ("Plastic" sets Material to Enum.Material.Plastic)
+  BrickColor — name string ("Bright red") or numeric ID
+  Instance ref — dot-path string, but ONLY for Parent and PrimaryPart (other ref props like Adornee/SoundGroup will fail — set those by writing the resolved instance via execute_luau)
+  Booleans — bool, or strings "true"/"false"
+OUTPUT FORMAT differs (see get_instance_properties): complex types come back as objects with _type tag.
+ERRORS: instance_not_found (bad path), ref_not_found (Parent/PrimaryPart target missing), property_write_failed (read-only, missing on class, or wrong type).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -273,6 +290,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     feature: 'mutation_plus',
     category: 'write',
     description: 'Set ONE property on MANY instances (one prop, N instances). For many props on one instance use set_properties. For single edit use set_property. Returns per-item success/error array (not atomic).',
+    descriptionLong: `Set ONE built-in property on MANY instances. NOT atomic — each path is processed independently; failures DO NOT roll back successes. Response: results[]:{path,success,...} plus summary:{total,succeeded,failed}. Inspect summary.failed before assuming the whole batch worked.
+Same value coercion rules as set_property (Vector3 array [x,y,z], Color3 [r,g,b], Enum short name, Parent/PrimaryPart as dot-path string, etc.). Per-instance pcall isolates errors so one bad path doesn't abort the rest.
+For many props on ONE instance use set_properties. For a single edit use set_property. For custom data use set_attribute / bulk_set_attributes (metadata).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -317,6 +337,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: 'set_properties',
     category: 'write',
     description: 'Set MANY properties on ONE instance in one call (N props, one instance). For one prop on many instances use mass_set_property (mutation_plus). For single edit use set_property.',
+    descriptionLong: `Set MANY built-in properties on ONE instance. NOT atomic — each property is applied independently in pcall; failures DO NOT roll back already-applied properties. Response: results[]:{property,success,error?} plus summary:{total,succeeded,failed}.
+Same value coercion as set_property (Vector3 array, Color3, Enum short name, Parent/PrimaryPart as dot-path, etc.). See set_property descriptionLong for full input value format reference.
+For one prop on many instances use mass_set_property (mutation_plus). For one prop edit use set_property.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -397,6 +420,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     feature: 'mutation_plus',
     category: 'write',
     description: 'Create multiple instances. Each can have optional properties.',
+    descriptionLong: `Create N instances in one call. Each entry: {className, parent (dot-path), name?, properties?}. NOT atomic — each entry is created independently; failures DO NOT roll back successful creates. Response: results[]:{success,className,parent,instancePath?,name?,error?} plus summary:{total,succeeded,failed}.
+Properties are applied per-entry with the same coercion as create_object (Vector3 array, Color3, Enum short name, etc.). Per-property failures within an entry are silenced (pcall) — the instance is still created and parented.
+For nested hierarchies prefer create_ui_tree (single tree, deeper nesting). For one creation use create_object.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1738,6 +1764,8 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     feature: 'metadata',
     category: 'write',
     description: 'Set multiple attributes on an instance in a single call. More efficient than repeated set_attribute calls.',
+    descriptionLong: `Set N attributes on ONE instance (custom user data, NOT built-in props — for those use set_properties). NOT atomic — each attribute is written independently in pcall; failures DO NOT roll back. Response: results[]:{attribute,success,error?} plus summary:{total,succeeded,failed}.
+Values: primitives + Vector3/Color3/UDim2/BrickColor via _type tag in deserialization (e.g. {_type:"Vector3",X,Y,Z}). For Roblox built-in properties use set_properties / set_property; for CollectionService tags use add_tag / remove_tag.`,
     inputSchema: {
       type: 'object',
       properties: {
