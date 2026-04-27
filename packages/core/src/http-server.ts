@@ -406,6 +406,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
   (app as any).setMCPServerActive = setMCPServerActive;
   (app as any).isMCPServerActive = isMCPServerActive;
   (app as any).trackMCPActivity = trackMCPActivity;
+  (app as any).getLastMCPActivity = () => lastMCPActivity;
 
   return app;
 }

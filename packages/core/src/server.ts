@@ -401,7 +401,40 @@ export class RobloxStudioMCPServer {
     process.on('SIGINT', shutdown);
     process.on('SIGHUP', shutdown);
 
-    process.stdin.on('end', shutdown);
-    process.stdin.on('close', shutdown);
+    // Don't shut down on stdin close. Some MCP clients (e.g. Codex CLI)
+    // close stdin during /clear without exiting their own process and
+    // without re-spawning the server, which leaves the user without MCP
+    // until manual restart. Survive the close so the held primary lock and
+    // active Studio plugin connection stay available; a freshly spawned
+    // sibling server will join in proxy mode and forward through us.
+    //
+    // Two safety nets prevent the survivor from becoming an orphan zombie:
+    //  - parent-pid watcher: exit if our parent is gone (real disconnect)
+    //  - idle timeout: exit if no plugin/MCP traffic for IDLE_EXIT_MS
+
+    const initialPpid = process.ppid;
+    const PARENT_CHECK_MS = 5000;
+    const IDLE_EXIT_MS = parseInt(process.env.ROBLOX_STUDIO_IDLE_EXIT_MS || `${30 * 60 * 1000}`);
+    let lastActivityAt = Date.now();
+    const markActivity = () => { lastActivityAt = Date.now(); };
+    process.stdin.on('data', markActivity);
+
+    const lifecycleWatcher = setInterval(() => {
+      try {
+        process.kill(initialPpid, 0);
+      } catch {
+        console.error(`Parent process ${initialPpid} no longer exists, shutting down`);
+        clearInterval(lifecycleWatcher);
+        shutdown();
+        return;
+      }
+      const httpActivity = primaryApp ? ((primaryApp as any).getLastMCPActivity?.() as number | undefined) : undefined;
+      const newest = Math.max(lastActivityAt, httpActivity ?? 0);
+      if (Date.now() - newest > IDLE_EXIT_MS) {
+        console.error(`Idle for ${IDLE_EXIT_MS}ms, shutting down`);
+        clearInterval(lifecycleWatcher);
+        shutdown();
+      }
+    }, PARENT_CHECK_MS);
   }
 }
