@@ -324,6 +324,7 @@ function setScriptSource(requestData: Record<string, unknown>) {
 			oldSourceLength, newSourceLength: sourceToSet.size(),
 			method: "UpdateSourceAsync",
 			message: "Script source updated successfully (editor-safe)",
+			knownHash: Hashing.fingerprint(["script-source", instancePath, sourceToSet, -1, -1]),
 		};
 	});
 
@@ -491,7 +492,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 	const newNorm = newString.gsub("\r\n", "\n")[0].gsub("\r", "\n")[0];
 
 	if (oldNorm === newNorm) {
-		const sourceHash = Hashing.fingerprint([source]);
+		const sourceHash = Hashing.fingerprint(["script-source", instancePath, source, -1, -1]);
 		return { success: true, noOp: true, knownHash: sourceHash, note: "old_string equals new_string; no change applied." };
 	}
 
@@ -552,7 +553,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		const [newSplit] = splitLines(newNorm);
 		const linesDelta = newSplit.size() - oldSplit.size();
 		const [newSourceLines] = splitLines(newSource);
-		const hash = Hashing.fingerprint([newSource]);
+		const hash = Hashing.fingerprint(["script-source", instancePath, newSource, -1, -1]);
 
 		const resp: Record<string, unknown> = {
 			success: true,
@@ -613,6 +614,7 @@ function insertScriptLines(requestData: Record<string, unknown>) {
 			insertedAfterLine: afterLine,
 			linesInserted: newLines.size(),
 			newLineCount: resultLines.size(),
+			knownHash: Hashing.fingerprint(["script-source", instancePath, newSource, -1, -1]),
 		};
 	});
 
@@ -660,6 +662,7 @@ function deleteScriptLines(requestData: Record<string, unknown>) {
 			deletedLines: { startLine, endLine },
 			linesDeleted: endLine - startLine + 1,
 			newLineCount: resultLines.size(),
+			knownHash: Hashing.fingerprint(["script-source", instancePath, newSource, -1, -1]),
 		};
 	});
 

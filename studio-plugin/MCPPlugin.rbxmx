@@ -5287,6 +5287,7 @@ local function setScriptSource(requestData)
 			newSourceLength = #sourceToSet,
 			method = "UpdateSourceAsync",
 			message = "Script source updated successfully (editor-safe)",
+			knownHash = Hashing.fingerprint({ "script-source", instancePath, sourceToSet, -1, -1 }),
 		}
 	end)
 	if updateSuccess then
@@ -5478,7 +5479,7 @@ local function editScriptLines(requestData)
 	local oldNorm = (string.gsub((string.gsub(oldString, "\r\n", "\n")), "\r", "\n"))
 	local newNorm = (string.gsub((string.gsub(newString, "\r\n", "\n")), "\r", "\n"))
 	if oldNorm == newNorm then
-		local sourceHash = Hashing.fingerprint({ source })
+		local sourceHash = Hashing.fingerprint({ "script-source", instancePath, source, -1, -1 })
 		return {
 			success = true,
 			noOp = true,
@@ -5550,7 +5551,7 @@ local function editScriptLines(requestData)
 		local newSplit = splitLines(newNorm)
 		local linesDelta = #newSplit - #oldSplit
 		local newSourceLines = splitLines(newSource)
-		local hash = Hashing.fingerprint({ newSource })
+		local hash = Hashing.fingerprint({ "script-source", instancePath, newSource, -1, -1 })
 		local resp = {
 			success = true,
 			knownHash = hash,
@@ -5653,6 +5654,7 @@ local function insertScriptLines(requestData)
 			insertedAfterLine = afterLine,
 			linesInserted = #newLines,
 			newLineCount = #resultLines,
+			knownHash = Hashing.fingerprint({ "script-source", instancePath, newSource, -1, -1 }),
 		}
 	end)
 	if success then
@@ -5740,6 +5742,7 @@ local function deleteScriptLines(requestData)
 			},
 			linesDeleted = endLine - startLine + 1,
 			newLineCount = #resultLines,
+			knownHash = Hashing.fingerprint({ "script-source", instancePath, newSource, -1, -1 }),
 		}
 	end)
 	if success then
