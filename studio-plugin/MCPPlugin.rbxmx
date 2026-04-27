@@ -2790,21 +2790,21 @@ local function getAttributes(requestData)
 		if count == 0 then
 			return {
 				attributes = {},
-				hash = hash,
+				knownHash = hash,
 			}
 		end
 		return {
 			attributes = serializedAttributes,
 			count = count,
-			hash = hash,
+			knownHash = hash,
 		}
 	end)
 	if success then
 		local r = result
-		if knownHash ~= nil and knownHash == r.hash then
+		if knownHash ~= nil and knownHash == r.knownHash then
 			return {
 				unchanged = true,
-				hash = r.hash,
+				knownHash = r.knownHash,
 			}
 		end
 		return r
@@ -4061,7 +4061,7 @@ local function getInstanceProperties(requestData)
 		if knownHash ~= nil and knownHash == hash then
 			return {
 				unchanged = true,
-				hash = hash,
+				knownHash = hash,
 			}
 		end
 		local resp = {
@@ -4069,7 +4069,7 @@ local function getInstanceProperties(requestData)
 			className = instance.ClassName,
 			properties = properties,
 			mode = effectiveMode,
-			hash = hash,
+			knownHash = hash,
 		}
 		if effectiveMode == "delta" then
 			resp.omittedDefaultCount = omittedDefaultCount
@@ -4286,13 +4286,13 @@ local function getProjectStructure(requestData)
 		if knownHash ~= nil and knownHash == overviewHash then
 			return {
 				unchanged = true,
-				hash = overviewHash,
+				knownHash = overviewHash,
 			}
 		end
 		return {
 			type = "service_overview",
 			services = services,
-			hash = overviewHash,
+			knownHash = overviewHash,
 		}
 	end
 	local startInstance = getInstanceByPath(startPath)
@@ -4438,10 +4438,10 @@ local function getProjectStructure(requestData)
 	if knownHash ~= nil and knownHash == treeHash then
 		return {
 			unchanged = true,
-			hash = treeHash,
+			knownHash = treeHash,
 		}
 	end
-	tree.hash = treeHash
+	tree.knownHash = treeHash
 	return tree
 end
 local function grepScripts(requestData)
@@ -4696,19 +4696,19 @@ local function getDescendants(requestData)
 	if knownHash ~= nil and knownHash == hash then
 		return {
 			unchanged = true,
-			hash = hash,
+			knownHash = hash,
 		}
 	end
 	if #descendants == 0 then
 		return {
 			descendants = {},
-			hash = hash,
+			knownHash = hash,
 		}
 	end
 	return {
 		descendants = descendants,
 		count = #descendants,
-		hash = hash,
+		knownHash = hash,
 	}
 end
 local function compareInstances(requestData)
@@ -4837,22 +4837,22 @@ local function getOutputLog(requestData)
 		if #finalEntries == 0 then
 			return {
 				entries = {},
-				hash = hash,
+				knownHash = hash,
 			}
 		end
 		return {
 			entries = finalEntries,
 			count = #finalEntries,
 			totalAvailable = #allEntries,
-			hash = hash,
+			knownHash = hash,
 		}
 	end)
 	if success then
 		local r = result
-		if knownHash ~= nil and knownHash == r.hash then
+		if knownHash ~= nil and knownHash == r.knownHash then
 			return {
 				unchanged = true,
-				hash = r.hash,
+				knownHash = r.knownHash,
 			}
 		end
 		return r
@@ -4943,7 +4943,7 @@ local function getScriptSource(requestData)
 		if knownHash ~= nil and knownHash == hash then
 			return {
 				unchanged = true,
-				hash = hash,
+				knownHash = hash,
 			}
 		end
 		local lines, hasTrailingNewline = splitLines(fullSource)
@@ -5001,7 +5001,7 @@ local function getScriptSource(requestData)
 			endLine = returnedEndLine,
 			isPartial = startLine ~= nil or endLine ~= nil,
 			truncated = false,
-			hash = hash,
+			knownHash = hash,
 		}
 		if startLine == nil and endLine == nil and #fullSource > 50000 then
 			local truncatedLines = {}
@@ -5090,7 +5090,7 @@ local function getScriptOutline(requestData)
 	if knownHash ~= nil and knownHash == hash then
 		return {
 			unchanged = true,
-			hash = hash,
+			knownHash = hash,
 		}
 	end
 	local lines = splitLines(source)
@@ -5251,7 +5251,7 @@ local function getScriptOutline(requestData)
 		_result = topLocals
 	end
 	_object[_left] = _result
-	_object.hash = hash
+	_object.knownHash = hash
 	return _object
 end
 local function setScriptSource(requestData)
@@ -5482,7 +5482,7 @@ local function editScriptLines(requestData)
 		return {
 			success = true,
 			noOp = true,
-			hash = sourceHash,
+			knownHash = sourceHash,
 			note = "old_string equals new_string; no change applied.",
 		}
 	end
@@ -5553,7 +5553,7 @@ local function editScriptLines(requestData)
 		local hash = Hashing.fingerprint({ newSource })
 		local resp = {
 			success = true,
-			hash = hash,
+			knownHash = hash,
 			replacedAtLine = replacedAtLine,
 			linesDelta = linesDelta,
 			newLineCount = #newSourceLines,

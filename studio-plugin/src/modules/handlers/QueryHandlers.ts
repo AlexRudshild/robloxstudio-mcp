@@ -429,14 +429,14 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 	if (success) {
 		const hash = hashProperties(instancePath, effectiveMode, properties);
 		if (knownHash !== undefined && knownHash === hash) {
-			return { unchanged: true, hash };
+			return { unchanged: true, knownHash: hash };
 		}
 		const resp: Record<string, unknown> = {
 			instancePath,
 			className: instance.ClassName,
 			properties,
 			mode: effectiveMode,
-			hash,
+			knownHash: hash,
 		};
 		if (effectiveMode === "delta") {
 			resp.omittedDefaultCount = omittedDefaultCount;
@@ -567,12 +567,12 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 		}
 		const overviewHash = Hashing.fingerprint(overviewParts);
 		if (knownHash !== undefined && knownHash === overviewHash) {
-			return { unchanged: true, hash: overviewHash };
+			return { unchanged: true, knownHash: overviewHash };
 		}
 		return {
 			type: "service_overview",
 			services,
-			hash: overviewHash,
+			knownHash: overviewHash,
 		};
 	}
 
@@ -670,9 +670,9 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 	const tree = getStructure(startInstance, 0);
 	const treeHash = hashTree(tree);
 	if (knownHash !== undefined && knownHash === treeHash) {
-		return { unchanged: true, hash: treeHash };
+		return { unchanged: true, knownHash: treeHash };
 	}
-	tree.hash = treeHash;
+	tree.knownHash = treeHash;
 	return tree;
 }
 
@@ -855,11 +855,11 @@ function getDescendants(requestData: Record<string, unknown>) {
 	}
 	const hash = Hashing.fingerprint(hashParts);
 	if (knownHash !== undefined && knownHash === hash) {
-		return { unchanged: true, hash };
+		return { unchanged: true, knownHash: hash };
 	}
 
-	if (descendants.size() === 0) return { descendants: [], hash };
-	return { descendants, count: descendants.size(), hash };
+	if (descendants.size() === 0) return { descendants: [], knownHash: hash };
+	return { descendants, count: descendants.size(), knownHash: hash };
 }
 
 function compareInstances(requestData: Record<string, unknown>) {
@@ -953,14 +953,14 @@ function getOutputLog(requestData: Record<string, unknown>) {
 		}
 		const hash = Hashing.fingerprint(hashParts);
 
-		if (finalEntries.size() === 0) return { entries: [], hash };
-		return { entries: finalEntries, count: finalEntries.size(), totalAvailable: allEntries.size(), hash };
+		if (finalEntries.size() === 0) return { entries: [], knownHash: hash };
+		return { entries: finalEntries, count: finalEntries.size(), totalAvailable: allEntries.size(), knownHash: hash };
 	});
 
 	if (success) {
 		const r = result as Record<string, unknown>;
-		if (knownHash !== undefined && knownHash === r.hash) {
-			return { unchanged: true, hash: r.hash };
+		if (knownHash !== undefined && knownHash === r.knownHash) {
+			return { unchanged: true, knownHash: r.knownHash };
 		}
 		return r;
 	}

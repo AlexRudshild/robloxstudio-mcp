@@ -42,7 +42,7 @@ function getScriptSource(requestData: Record<string, unknown>) {
 			endLine ?? -1,
 		]);
 		if (knownHash !== undefined && knownHash === hash) {
-			return { unchanged: true, hash };
+			return { unchanged: true, knownHash: hash };
 		}
 		const [lines, hasTrailingNewline] = splitLines(fullSource);
 		const totalLineCount = lines.size();
@@ -79,7 +79,7 @@ function getScriptSource(requestData: Record<string, unknown>) {
 			endLine: returnedEndLine,
 			isPartial: startLine !== undefined || endLine !== undefined,
 			truncated: false,
-			hash,
+			knownHash: hash,
 		};
 
 		if (startLine === undefined && endLine === undefined && fullSource.size() > 50000) {
@@ -163,7 +163,7 @@ function getScriptOutline(requestData: Record<string, unknown>) {
 	const source = readScriptSource(instance);
 	const hash = Hashing.fingerprint(["script-outline", instancePath, source]);
 	if (knownHash !== undefined && knownHash === hash) {
-		return { unchanged: true, hash };
+		return { unchanged: true, knownHash: hash };
 	}
 	const [lines] = splitLines(source);
 	const totalLines = lines.size();
@@ -295,7 +295,7 @@ function getScriptOutline(requestData: Record<string, unknown>) {
 		functions,
 		requires,
 		topLocals: topLocals.size() > 30 ? [...topLocals].filter((_, i) => i < 30) : topLocals,
-		hash,
+		knownHash: hash,
 	};
 }
 
@@ -492,7 +492,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 
 	if (oldNorm === newNorm) {
 		const sourceHash = Hashing.fingerprint([source]);
-		return { success: true, noOp: true, hash: sourceHash, note: "old_string equals new_string; no change applied." };
+		return { success: true, noOp: true, knownHash: sourceHash, note: "old_string equals new_string; no change applied." };
 	}
 
 	const matches = findAllMatches(source, oldNorm);
@@ -556,7 +556,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 
 		const resp: Record<string, unknown> = {
 			success: true,
-			hash,
+			knownHash: hash,
 			replacedAtLine,
 			linesDelta,
 			newLineCount: newSourceLines.size(),

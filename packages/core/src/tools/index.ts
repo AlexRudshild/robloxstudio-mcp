@@ -448,7 +448,7 @@ export class RobloxStudioTools {
     }
 
     if (response.unchanged) {
-      return { content: [{ type: 'text', text: JSON.stringify({ unchanged: true, hash: response.hash }) }] };
+      return { content: [{ type: 'text', text: JSON.stringify({ unchanged: true, knownHash: response.knownHash }) }] };
     }
 
     const pathStr = (response.instancePath as string) || instancePath;
@@ -459,7 +459,7 @@ export class RobloxStudioTools {
     ];
     if (response.enabled === false) headerParts.push('DISABLED');
     if (response.truncated) headerParts.push('TRUNCATED@1000 (use startLine/endLine)');
-    if (response.hash) headerParts.push(`hash: ${response.hash}`);
+    if (response.knownHash) headerParts.push(`knownHash: ${response.knownHash}`);
 
     const sourceText = (response.source as string) ?? '';
     const offset = (response.startLine as number) ?? 1;

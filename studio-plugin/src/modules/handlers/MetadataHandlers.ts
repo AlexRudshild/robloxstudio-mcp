@@ -232,14 +232,14 @@ function getAttributes(requestData: Record<string, unknown>) {
 			hashParts.push(tostring(serializedAttributes[n].value));
 		}
 		const hash = Hashing.fingerprint(hashParts);
-		if (count === 0) return { attributes: {}, hash };
-		return { attributes: serializedAttributes, count, hash };
+		if (count === 0) return { attributes: {}, knownHash: hash };
+		return { attributes: serializedAttributes, count, knownHash: hash };
 	});
 
 	if (success) {
 		const r = result as Record<string, unknown>;
-		if (knownHash !== undefined && knownHash === r.hash) {
-			return { unchanged: true, hash: r.hash };
+		if (knownHash !== undefined && knownHash === r.knownHash) {
+			return { unchanged: true, knownHash: r.knownHash };
 		}
 		return r;
 	}

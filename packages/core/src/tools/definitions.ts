@@ -191,7 +191,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
+          description: 'Pass knownHash from a prior response of this tool to dedup unchanged data — server returns {unchanged:true,knownHash}.'
         }
       },
       required: ['instancePath']
@@ -210,7 +210,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
+          description: 'Pass knownHash from a prior response of this tool to dedup unchanged data — server returns {unchanged:true,knownHash}.'
         }
       },
       required: ['instancePath']
@@ -238,7 +238,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from a prior response. If unchanged, returns {unchanged:true, hash} instead of full tree.'
+          description: 'Pass knownHash from a prior response to dedup unchanged trees — server returns {unchanged:true,knownHash}.'
         }
       }
     }
@@ -569,7 +569,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_script_outline',
     category: 'read',
-    description: 'Get a compact symbol outline of a script: function names with signatures and line ranges, requires, and top-level locals. Read this first for a quick map; use get_script_source with startLine/endLine to drill into a specific function. Supports knownHash for change detection.',
+    description: 'Get a compact symbol outline of a script: function names with signatures and line ranges, requires, and top-level locals. Read this first for a quick map; use get_script_source with startLine/endLine to drill into a specific function. Response includes knownHash — pass it back on re-reads to dedup unchanged outline.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -579,7 +579,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
+          description: 'Pass knownHash from a prior response of this tool to dedup unchanged data — server returns {unchanged:true,knownHash}.'
         }
       },
       required: ['instancePath']
@@ -588,7 +588,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_script_source',
     category: 'read',
-    description: 'Get script source with line numbers. Use startLine/endLine for large scripts. For an overview, prefer get_script_outline. Supports knownHash for change detection.',
+    description: 'Get script source with line numbers. Use startLine/endLine for large scripts. For an overview, prefer get_script_outline. Response includes knownHash — pass it back on re-reads (or pass the knownHash returned by edit_script_lines/insert_script_lines/delete_script_lines) to dedup unchanged source and skip resending the body.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -606,7 +606,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
+          description: 'Pass knownHash from a prior response of this tool to dedup unchanged data — server returns {unchanged:true,knownHash}.'
         }
       },
       required: ['instancePath']
@@ -635,8 +635,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'edit_script_lines',
     category: 'write',
-    description: 'Surgical text replacement in a script (whitespace-sensitive, single match). Returns hash + replacedAtLine. Pass validateAfter:true for post-edit require/syntax check. Call get_tool_help for workflow, error codes, value formats.',
-    descriptionLong: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, hash, replacedAtLine, linesDelta, newLineCount}. On failure: errorCode edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines), or empty_old_string. Identical old/new returns {success:true, noOp:true}. Pass validateAfter:true to clone+require ModuleScripts (or loadstring BaseScripts) post-edit and return validation:{ok, kind, error?}. For project-wide replace use find_and_replace_in_scripts; for full rewrite use set_script_source.',
+    description: 'Surgical text replacement in a script (whitespace-sensitive, single match). Returns knownHash + replacedAtLine. Pass validateAfter:true for post-edit require/syntax check. Call get_tool_help for workflow, error codes, value formats.',
+    descriptionLong: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, knownHash, replacedAtLine, linesDelta, newLineCount} — pass knownHash to subsequent get_script_source/get_script_outline on the same script to dedup. On failure: errorCode edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines), or empty_old_string. Identical old/new returns {success:true, noOp:true}. Pass validateAfter:true to clone+require ModuleScripts (or loadstring BaseScripts) post-edit and return validation:{ok, kind, error?}. For project-wide replace use find_and_replace_in_scripts; for full rewrite use set_script_source.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -755,7 +755,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from prior call. If unchanged, returns {unchanged:true, hash}. Only applies when attributeName is omitted.'
+          description: 'Pass knownHash from a prior response to dedup unchanged data — server returns {unchanged:true,knownHash}. Only applies when attributeName is omitted.'
         }
       },
       required: ['instancePath']
@@ -1646,7 +1646,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'get_descendants',
     feature: 'inspection_plus',
     category: 'read',
-    description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls. Pass knownHash to dedup unchanged trees (returns {unchanged:true, hash}).',
+    description: 'Get all descendants of an instance recursively with depth info. More efficient than repeated get_instance_children calls. Pass knownHash to dedup unchanged trees (returns {unchanged:true,knownHash}).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1664,7 +1664,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from prior call. If unchanged, returns {unchanged:true, hash} instead of full descendants list.'
+          description: 'Pass knownHash from a prior response to dedup unchanged descendants list — server returns {unchanged:true,knownHash}.'
         }
       },
       required: ['instancePath']
@@ -1696,7 +1696,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'get_output_log',
     feature: 'inspection_plus',
     category: 'read',
-    description: 'Get the Studio output log history. Works in both edit and play mode. Pass knownHash to dedup polled output (returns {unchanged:true, hash} when log unchanged since prior call) — useful when polling for new output during long-running tasks.',
+    description: 'Get the Studio output log history. Works in both edit and play mode. Pass knownHash to dedup polled output (returns {unchanged:true,knownHash} when log unchanged since prior call) — useful when polling for new output during long-running tasks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1710,7 +1710,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
         },
         knownHash: {
           type: 'string',
-          description: 'Hash from prior call. Returns {unchanged:true, hash} if log is identical — skip when polling.'
+          description: 'Pass knownHash from a prior response to dedup unchanged log — server returns {unchanged:true,knownHash}. Useful when polling.'
         }
       }
     }
