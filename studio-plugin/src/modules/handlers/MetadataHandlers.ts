@@ -415,11 +415,26 @@ function executeLuau(requestData: Record<string, unknown>) {
 		oldWarn(...(args as [defined, ...defined[]]));
 	};
 
-	const [success, result] = pcall(() => {
-		const [fn, compileError] = loadstring(code);
-		if (!fn) error(`Compile error: ${compileError}`);
-		return fn();
-	});
+	const [fn, compileError] = loadstring(code, "=execute_luau");
+	if (!fn) {
+		env["print"] = oldPrint;
+		env["warn"] = oldWarn;
+		return {
+			success: false,
+			error: tostring(compileError),
+			errorCode: "luau_compile_error",
+			output,
+		};
+	}
+
+	const [success, result] = xpcall(
+		() => fn(),
+		(err: unknown) => {
+			const msg = tostring(err);
+			const trace = debug.traceback(undefined, 2);
+			return `${msg}\n${trace}`;
+		},
+	);
 
 	env["print"] = oldPrint;
 	env["warn"] = oldWarn;

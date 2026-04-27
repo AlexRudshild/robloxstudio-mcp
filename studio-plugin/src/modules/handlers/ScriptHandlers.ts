@@ -420,7 +420,7 @@ function validateScript(instance: LuaSourceContainer): Record<string, unknown> {
 	const isModule = instance.IsA("ModuleScript");
 	const source = readScriptSource(instance);
 
-	const [fn, compileError] = loadstring(source);
+	const [fn, compileError] = loadstring(source, `=${instance.Name}`);
 	if (!fn) {
 		const errStr = tostring(compileError);
 		const [lineStr] = errStr.match(":(%d+):");
@@ -826,7 +826,7 @@ function getScriptAnalysis(requestData: Record<string, unknown>) {
 		const source = readScriptSource(scriptInstance);
 		const diagnostics: Record<string, unknown>[] = [];
 
-		const [fn, compileError] = loadstring(source);
+		const [fn, compileError] = loadstring(source, `=${scriptInstance.Name}`);
 		if (!fn && compileError) {
 			const [lineStr] = tostring(compileError).match(":(%d+):");
 			diagnostics.push({

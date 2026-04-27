@@ -509,12 +509,16 @@ local function insertAsset(requestData)
 	if not (assetId ~= 0 and assetId == assetId and assetId) then
 		return {
 			error = "assetId is required",
+			errorCode = "missing_arg",
+			argName = "assetId",
 		}
 	end
 	local parentInstance = getInstanceByPath(parentPath)
 	if not parentInstance then
 		return {
 			error = `Parent instance not found: {parentPath}`,
+			errorCode = "parent_not_found",
+			parentPath = parentPath,
 		}
 	end
 	local recordingId = beginRecording(`Insert asset {assetId}`)
@@ -591,6 +595,8 @@ local function insertAsset(requestData)
 	if not insertSuccess then
 		return {
 			error = `Failed to insert asset {assetId}: {tostring(insertResult)}`,
+			errorCode = "asset_insert_failed",
+			assetId = assetId,
 		}
 	end
 	return insertResult
@@ -610,6 +616,8 @@ local function previewAsset(requestData)
 	if not (assetId ~= 0 and assetId == assetId and assetId) then
 		return {
 			error = "assetId is required",
+			errorCode = "missing_arg",
+			argName = "assetId",
 		}
 	end
 	local loadSuccess, wrapperModel = pcall(function()
@@ -618,6 +626,8 @@ local function previewAsset(requestData)
 	if not loadSuccess or not wrapperModel then
 		return {
 			error = `Failed to load asset {assetId}: {tostring(wrapperModel)}`,
+			errorCode = "asset_load_failed",
+			assetId = assetId,
 		}
 	end
 	-- Stats tracking
@@ -757,6 +767,8 @@ local function previewAsset(requestData)
 	if not previewSuccess then
 		return {
 			error = `Failed to preview asset {assetId}: {tostring(previewResult)}`,
+			errorCode = "asset_preview_failed",
+			assetId = assetId,
 		}
 	end
 	return previewResult
@@ -837,17 +849,22 @@ local function exportBuild(requestData)
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	if not instance:IsA("Model") and not instance:IsA("Folder") then
 		return {
 			error = "Instance must be a Model or Folder",
+			errorCode = "invalid_class",
 		}
 	end
 	local success, result = pcall(function()
@@ -861,6 +878,7 @@ local function exportBuild(requestData)
 		if #baseParts == 0 then
 			return {
 				error = "No BaseParts found in instance",
+				errorCode = "empty_build",
 			}
 		end
 		-- Compute bounding box center
@@ -983,6 +1001,7 @@ local function exportBuild(requestData)
 	else
 		return {
 			error = `Failed to export build: {result}`,
+			errorCode = "export_failed",
 		}
 	end
 end
@@ -993,12 +1012,15 @@ local function importBuild(requestData)
 	if not buildData or not (targetPath ~= "" and targetPath) then
 		return {
 			error = "buildData and targetPath are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local parentInstance = getInstanceByPath(targetPath)
 	if not parentInstance then
 		return {
 			error = `Target not found: {targetPath}`,
+			errorCode = "target_not_found",
+			targetPath = targetPath,
 		}
 	end
 	local recordingId = beginRecording("Import build")
@@ -1116,6 +1138,7 @@ local function importBuild(requestData)
 		finishRecording(recordingId, false)
 		return {
 			error = `Failed to import build: {result}`,
+			errorCode = "import_failed",
 		}
 	end
 end
@@ -1129,12 +1152,15 @@ local function importScene(requestData)
 	if not expandedBuilds or not (type(expandedBuilds) == "table") or #expandedBuilds == 0 then
 		return {
 			error = "expandedBuilds array is required",
+			errorCode = "missing_arg",
 		}
 	end
 	local parentInstance = getInstanceByPath(targetPath)
 	if not parentInstance then
 		return {
 			error = `Target not found: {targetPath}`,
+			errorCode = "target_not_found",
+			targetPath = targetPath,
 		}
 	end
 	local recordingId = beginRecording("Import scene")
@@ -1276,6 +1302,7 @@ local function importScene(requestData)
 		finishRecording(recordingId, false)
 		return {
 			error = `Failed to import scene: {result}`,
+			errorCode = "scene_import_failed",
 		}
 	end
 end
@@ -1321,6 +1348,7 @@ local function searchMaterials(requestData)
 	else
 		return {
 			error = `Failed to search materials: {result}`,
+			errorCode = "material_search_failed",
 		}
 	end
 end
@@ -1760,12 +1788,15 @@ local function createObject(requestData)
 	if not (className ~= "" and className) or not (parentPath ~= "" and parentPath) then
 		return {
 			error = "Class name and parent are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local parentInstance = getInstanceByPath(parentPath)
 	if not parentInstance then
 		return {
-			error = `Parent instance not found: {parentPath}`,
+			error = `Parent instance not found: {parentPath}. Use search() or get_project_structure() to find a valid parent path.`,
+			errorCode = "parent_not_found",
+			parentPath = parentPath,
 		}
 	end
 	local recordingId = beginRecording(`Create {className}`)
@@ -1795,9 +1826,10 @@ local function createObject(requestData)
 	else
 		finishRecording(recordingId, false)
 		return {
-			error = `Failed to create object: {newInstance}`,
+			error = `Failed to create object: {newInstance}. Class may not be creatable from script, or parent may not accept this child type.`,
+			errorCode = "create_failed",
 			className = className,
-			parent = parentPath,
+			parentPath = parentPath,
 		}
 	end
 end
@@ -1806,17 +1838,22 @@ local function deleteObject(requestData)
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	if instance == game then
 		return {
 			error = "Cannot delete the game instance",
+			errorCode = "delete_protected",
 		}
 	end
 	local recordingId = beginRecording(`Delete {instance.ClassName} ({instance.Name})`)
@@ -1834,6 +1871,7 @@ local function deleteObject(requestData)
 		finishRecording(recordingId, false)
 		return {
 			error = `Failed to delete object: {result}`,
+			errorCode = "delete_failed",
 			instancePath = instancePath,
 		}
 	end
@@ -1843,6 +1881,7 @@ local function massCreateObjects(requestData)
 	if not objects or not (type(objects) == "table") or #objects == 0 then
 		return {
 			error = "Objects array is required",
+			errorCode = "missing_arg",
 		}
 	end
 	local recordingId = beginRecording("Mass create objects")
@@ -1854,6 +1893,7 @@ local function massCreateObjects(requestData)
 		if not parentInstance then
 			return {
 				error = "Parent instance not found",
+				errorCode = "parent_not_found",
 				className = className,
 				parentPath = parentPath,
 			}
@@ -1869,6 +1909,7 @@ local function massCreateObjects(requestData)
 		if not success or not newInstance then
 			return {
 				error = tostring(newInstance),
+				errorCode = "create_failed",
 				className = className,
 				parentPath = parentPath,
 			}
@@ -1902,12 +1943,15 @@ local function performSmartDuplicate(requestData, useRecording)
 	if not (instancePath ~= "" and instancePath) or not (count ~= 0 and count == count and count) or count < 1 then
 		return {
 			error = "Instance path and count > 0 are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = if useRecording then beginRecording(`Smart duplicate {instance.Name}`) else nil
@@ -2074,6 +2118,7 @@ local function massDuplicate(requestData)
 	if not duplications or not (type(duplications) == "table") or #duplications == 0 then
 		return {
 			error = "Duplications array is required",
+			errorCode = "missing_arg",
 		}
 	end
 	local allResults = {}
@@ -2104,18 +2149,23 @@ local function cloneObject(requestData)
 	if not (instancePath ~= "" and instancePath) or not (targetParentPath ~= "" and targetParentPath) then
 		return {
 			error = "Instance path and target parent path are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local targetParent = getInstanceByPath(targetParentPath)
 	if not targetParent then
 		return {
 			error = `Target parent not found: {targetParentPath}`,
+			errorCode = "parent_not_found",
+			targetParentPath = targetParentPath,
 		}
 	end
 	local recordingId = beginRecording(`Clone {instance.Name}`)
@@ -2137,6 +2187,7 @@ local function cloneObject(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to clone object: {clone}`,
+		errorCode = "clone_failed",
 	}
 end
 local function moveObject(requestData)
@@ -2145,18 +2196,23 @@ local function moveObject(requestData)
 	if not (instancePath ~= "" and instancePath) or not (targetParentPath ~= "" and targetParentPath) then
 		return {
 			error = "Instance path and target parent path are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local targetParent = getInstanceByPath(targetParentPath)
 	if not targetParent then
 		return {
 			error = `Target parent not found: {targetParentPath}`,
+			errorCode = "parent_not_found",
+			targetParentPath = targetParentPath,
 		}
 	end
 	local recordingId = beginRecording(`Move {instance.Name}`)
@@ -2177,6 +2233,7 @@ local function moveObject(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to move object: {result}`,
+		errorCode = "move_failed",
 	}
 end
 local function createUITree(requestData)
@@ -2185,12 +2242,15 @@ local function createUITree(requestData)
 	if not tree or not (parentPath ~= "" and parentPath) then
 		return {
 			error = "Tree object and parentPath are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local parent = getInstanceByPath(parentPath)
 	if not parent then
 		return {
 			error = `Parent not found: {parentPath}`,
+			errorCode = "parent_not_found",
+			parentPath = parentPath,
 		}
 	end
 	local _value = tree.className
@@ -2202,6 +2262,7 @@ local function createUITree(requestData)
 	if _condition then
 		return {
 			error = "Tree root must have a className string",
+			errorCode = "invalid_arg",
 		}
 	end
 	local MAX_DEPTH = 20
@@ -2295,10 +2356,180 @@ local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
 local CollectionService = TS.import(script, script.Parent.Parent.Parent, "node_modules", "@rbxts", "services").CollectionService
 local Utils = TS.import(script, script.Parent.Parent, "Utils")
 local Recording = TS.import(script, script.Parent.Parent, "Recording")
+local Hashing = TS.import(script, script.Parent.Parent, "Hashing")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local Selection = game:GetService("Selection")
+local getInstancePath
+local function describeValue(value)
+	local _value = value
+	local t = typeof(_value)
+	if t == "boolean" or t == "number" or t == "string" or t == "nil" then
+		return value
+	end
+	if t == "Vector3" then
+		local v = value
+		return {
+			X = v.X,
+			Y = v.Y,
+			Z = v.Z,
+			_type = "Vector3",
+		}
+	end
+	if t == "Vector2" then
+		local v = value
+		return {
+			X = v.X,
+			Y = v.Y,
+			_type = "Vector2",
+		}
+	end
+	if t == "Color3" then
+		local c = value
+		return {
+			R = c.R,
+			G = c.G,
+			B = c.B,
+			_type = "Color3",
+		}
+	end
+	if t == "UDim" then
+		local u = value
+		return {
+			Scale = u.Scale,
+			Offset = u.Offset,
+			_type = "UDim",
+		}
+	end
+	if t == "UDim2" then
+		local v = value
+		return {
+			X = {
+				Scale = v.X.Scale,
+				Offset = v.X.Offset,
+			},
+			Y = {
+				Scale = v.Y.Scale,
+				Offset = v.Y.Offset,
+			},
+			_type = "UDim2",
+		}
+	end
+	if t == "CFrame" then
+		local cf = value
+		local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
+		return {
+			Position = {
+				X = x,
+				Y = y,
+				Z = z,
+			},
+			Rotation = { r00, r01, r02, r10, r11, r12, r20, r21, r22 },
+			_type = "CFrame",
+		}
+	end
+	if t == "BrickColor" then
+		local bc = value
+		return {
+			Name = bc.Name,
+			_type = "BrickColor",
+		}
+	end
+	if t == "EnumItem" then
+		local e = value
+		return {
+			Name = e.Name,
+			EnumType = tostring(e.EnumType),
+			Value = e.Value,
+			_type = "EnumItem",
+		}
+	end
+	if t == "Instance" then
+		local inst = value
+		return {
+			Path = getInstancePath(inst),
+			ClassName = inst.ClassName,
+			_type = "Instance",
+		}
+	end
+	return tostring(value)
+end
+local function safeJsonEncode(value, depth)
+	if depth > 6 then
+		return {
+			ok = false,
+			reason = "max depth exceeded",
+		}
+	end
+	local _value = value
+	local t = typeof(_value)
+	if t == "table" then
+		local tbl = value
+		local out = {}
+		local isArray = (function()
+			local n = 0
+			for k in pairs(tbl) do
+				if type(k) == "number" then
+					n += 1
+				else
+					return false
+				end
+			end
+			return n > 0
+		end)()
+		if isArray then
+			local arr = {}
+			local arrLen = #tbl
+			do
+				local i = 0
+				local _shouldIncrement = false
+				while true do
+					if _shouldIncrement then
+						i += 1
+					else
+						_shouldIncrement = true
+					end
+					if not (i < arrLen) then
+						break
+					end
+					local v = tbl[i + 1]
+					local r = safeJsonEncode(v, depth + 1)
+					if not r.ok then
+						return r
+					end
+					local _value_1 = r.value
+					table.insert(arr, _value_1)
+				end
+			end
+			return {
+				ok = true,
+				value = arr,
+			}
+		end
+		for k, v in pairs(tbl) do
+			local r = safeJsonEncode(v, depth + 1)
+			if not r.ok then
+				return r
+			end
+			out[tostring(k)] = r.value
+		end
+		return {
+			ok = true,
+			value = out,
+		}
+	end
+	if t == "function" or t == "thread" or t == "userdata" then
+		return {
+			ok = false,
+			reason = `non-serializable type: {t}`,
+		}
+	end
+	return {
+		ok = true,
+		value = describeValue(value),
+	}
+end
 local _binding = Utils
-local getInstancePath = _binding.getInstancePath
+getInstancePath = _binding.getInstancePath
 local getInstanceByPath = _binding.getInstanceByPath
 local _binding_1 = Recording
 local beginRecording = _binding_1.beginRecording
@@ -2444,12 +2675,15 @@ local function getAttribute(requestData)
 	if not (instancePath ~= "" and instancePath) or not (attributeName ~= "" and attributeName) then
 		return {
 			error = "Instance path and attribute name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local success, result = pcall(function()
@@ -2467,6 +2701,7 @@ local function getAttribute(requestData)
 	end
 	return {
 		error = `Failed to get attribute: {result}`,
+		errorCode = "attribute_read_failed",
 	}
 end
 local function setAttribute(requestData)
@@ -2477,12 +2712,15 @@ local function setAttribute(requestData)
 	if not (instancePath ~= "" and instancePath) or not (attributeName ~= "" and attributeName) then
 		return {
 			error = "Instance path and attribute name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording(`Set attribute {attributeName} on {instance.Name}`)
@@ -2503,19 +2741,25 @@ local function setAttribute(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to set attribute: {result}`,
+		errorCode = "attribute_write_failed",
 	}
 end
 local function getAttributes(requestData)
 	local instancePath = requestData.instancePath
+	local knownHash = requestData.knownHash
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local success, result = pcall(function()
@@ -2529,17 +2773,45 @@ local function getAttributes(requestData)
 			}
 			count += 1
 		end
+		local hashParts = { "attributes", instancePath, count }
+		local sortedNames = {}
+		for n in pairs(serializedAttributes) do
+			table.insert(sortedNames, n)
+		end
+		table.sort(sortedNames)
+		for _, n in sortedNames do
+			table.insert(hashParts, n)
+			local _type = serializedAttributes[n].type
+			table.insert(hashParts, _type)
+			local _arg0 = tostring(serializedAttributes[n].value)
+			table.insert(hashParts, _arg0)
+		end
+		local hash = Hashing.fingerprint(hashParts)
+		if count == 0 then
+			return {
+				attributes = {},
+				hash = hash,
+			}
+		end
 		return {
-			instancePath = instancePath,
 			attributes = serializedAttributes,
 			count = count,
+			hash = hash,
 		}
 	end)
 	if success then
-		return result
+		local r = result
+		if knownHash ~= nil and knownHash == r.hash then
+			return {
+				unchanged = true,
+				hash = r.hash,
+			}
+		end
+		return r
 	end
 	return {
 		error = `Failed to get attributes: {result}`,
+		errorCode = "attribute_read_failed",
 	}
 end
 local function deleteAttribute(requestData)
@@ -2548,12 +2820,15 @@ local function deleteAttribute(requestData)
 	if not (instancePath ~= "" and instancePath) or not (attributeName ~= "" and attributeName) then
 		return {
 			error = "Instance path and attribute name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording(`Delete attribute {attributeName} from {instance.Name}`)
@@ -2575,6 +2850,7 @@ local function deleteAttribute(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to delete attribute: {result}`,
+		errorCode = "attribute_delete_failed",
 	}
 end
 local function getTags(requestData)
@@ -2582,12 +2858,16 @@ local function getTags(requestData)
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local success, result = pcall(function()
@@ -2603,6 +2883,7 @@ local function getTags(requestData)
 	end
 	return {
 		error = `Failed to get tags: {result}`,
+		errorCode = "tag_read_failed",
 	}
 end
 local function addTag(requestData)
@@ -2611,12 +2892,15 @@ local function addTag(requestData)
 	if not (instancePath ~= "" and instancePath) or not (tagName ~= "" and tagName) then
 		return {
 			error = "Instance path and tag name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording(`Add tag {tagName} to {instance.Name}`)
@@ -2638,6 +2922,7 @@ local function addTag(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to add tag: {result}`,
+		errorCode = "tag_write_failed",
 	}
 end
 local function removeTag(requestData)
@@ -2646,12 +2931,15 @@ local function removeTag(requestData)
 	if not (instancePath ~= "" and instancePath) or not (tagName ~= "" and tagName) then
 		return {
 			error = "Instance path and tag name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording(`Remove tag {tagName} from {instance.Name}`)
@@ -2673,6 +2961,7 @@ local function removeTag(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to remove tag: {result}`,
+		errorCode = "tag_remove_failed",
 	}
 end
 local function getTagged(requestData)
@@ -2680,6 +2969,8 @@ local function getTagged(requestData)
 	if not (tagName ~= "" and tagName) then
 		return {
 			error = "Tag name is required",
+			errorCode = "missing_arg",
+			argName = "tagName",
 		}
 	end
 	local success, result = pcall(function()
@@ -2709,6 +3000,7 @@ local function getTagged(requestData)
 	end
 	return {
 		error = `Failed to get tagged instances: {result}`,
+		errorCode = "tag_query_failed",
 	}
 end
 local function getSelection(_requestData)
@@ -2748,6 +3040,8 @@ local function executeLuau(requestData)
 	if not (code ~= "" and code) or code == "" then
 		return {
 			error = "Code is required",
+			errorCode = "missing_arg",
+			argName = "code",
 		}
 	end
 	local output = {}
@@ -2776,25 +3070,48 @@ local function executeLuau(requestData)
 		table.insert(output, _arg0)
 		oldWarn(unpack(args))
 	end
-	local success, result = pcall(function()
-		local fn, compileError = loadstring(code)
-		if not fn then
-			error(`Compile error: {compileError}`)
-		end
+	local fn, compileError = loadstring(code, "=execute_luau")
+	if not fn then
+		env.print = oldPrint
+		env.warn = oldWarn
+		return {
+			success = false,
+			error = tostring(compileError),
+			errorCode = "luau_compile_error",
+			output = output,
+		}
+	end
+	local success, result = xpcall(function()
 		return fn()
+	end, function(err)
+		local msg = tostring(err)
+		local trace = debug.traceback(nil, 2)
+		return `{msg}\n{trace}`
 	end)
 	env.print = oldPrint
 	env.warn = oldWarn
 	if success then
-		return {
+		local response = {
 			success = true,
-			returnValue = if result ~= nil then tostring(result) else nil,
 			output = output,
 		}
+		if result ~= nil then
+			local encoded = safeJsonEncode(result, 0)
+			if encoded.ok then
+				response.returnValue = encoded.value
+				response.returnType = typeof(result)
+			else
+				response.returnValue = tostring(result)
+				response.returnType = typeof(result)
+				response.returnSerializationNote = encoded.reason
+			end
+		end
+		return response
 	else
 		return {
 			success = false,
 			error = tostring(result),
+			errorCode = "luau_runtime_error",
 			output = output,
 		}
 	end
@@ -2811,6 +3128,7 @@ local function undo(_requestData)
 	end
 	return {
 		error = `Failed to undo: {result}`,
+		errorCode = "undo_failed",
 	}
 end
 local function redo(_requestData)
@@ -2838,7 +3156,9 @@ local function bulkSetAttributes(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording(`Bulk set attributes on {instance.Name}`)
@@ -2917,12 +3237,15 @@ local function setProperty(requestData)
 	if not (instancePath ~= "" and instancePath) or not (propertyName ~= "" and propertyName) then
 		return {
 			error = "Instance path and property name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording(`Set {propertyName} property`)
@@ -2936,6 +3259,7 @@ local function setProperty(requestData)
 				else
 					return {
 						error = `{propertyName} instance not found: {propertyValue}`,
+						errorCode = "ref_not_found",
 					}
 				end
 			end
@@ -2964,7 +3288,8 @@ local function setProperty(requestData)
 	else
 		finishRecording(recordingId, false)
 		return {
-			error = `Failed to set property: {result}`,
+			error = `Failed to set property: {result}. Property may be read-only, missing on this class, or expect a different type.`,
+			errorCode = "property_write_failed",
 			instancePath = instancePath,
 			propertyName = propertyName,
 		}
@@ -2977,6 +3302,7 @@ local function massSetProperty(requestData)
 	if not paths or not (type(paths) == "table") or #paths == 0 or not (propertyName ~= "" and propertyName) then
 		return {
 			error = "Paths array and property name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local results = {}
@@ -3013,6 +3339,7 @@ local function massSetProperty(requestData)
 				path = path,
 				success = false,
 				error = "Instance not found",
+				errorCode = "instance_not_found",
 			}
 			table.insert(results, _arg0)
 		end
@@ -3033,6 +3360,7 @@ local function massGetProperty(requestData)
 	if not paths or not (type(paths) == "table") or #paths == 0 or not (propertyName ~= "" and propertyName) then
 		return {
 			error = "Paths array and property name are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local results = {}
@@ -3063,6 +3391,7 @@ local function massGetProperty(requestData)
 				path = path,
 				success = false,
 				error = "Instance not found",
+				errorCode = "instance_not_found",
 			}
 			table.insert(results, _arg0)
 		end
@@ -3078,12 +3407,15 @@ local function setProperties(requestData)
 	if not (instancePath ~= "" and instancePath) or not properties or not (type(properties) == "table") then
 		return {
 			error = "Instance path and properties object are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local recordingId = beginRecording("Set multiple properties")
@@ -3181,7 +3513,11 @@ local function getDefaultInstance(className)
 end
 local function formatPropValue(val)
 	local _val = val
-	if typeof(_val) == "UDim2" then
+	local t = typeof(_val)
+	if t == "boolean" or t == "number" or t == "string" or t == "nil" then
+		return val
+	end
+	if t == "UDim2" then
 		local udim = val
 		return {
 			X = {
@@ -3195,6 +3531,97 @@ local function formatPropValue(val)
 			_type = "UDim2",
 		}
 	end
+	if t == "Vector3" then
+		local v = val
+		return {
+			X = v.X,
+			Y = v.Y,
+			Z = v.Z,
+			_type = "Vector3",
+		}
+	end
+	if t == "Vector2" then
+		local v = val
+		return {
+			X = v.X,
+			Y = v.Y,
+			_type = "Vector2",
+		}
+	end
+	if t == "Color3" then
+		local c = val
+		return {
+			R = c.R,
+			G = c.G,
+			B = c.B,
+			_type = "Color3",
+		}
+	end
+	if t == "UDim" then
+		local u = val
+		return {
+			Scale = u.Scale,
+			Offset = u.Offset,
+			_type = "UDim",
+		}
+	end
+	if t == "CFrame" then
+		local cf = val
+		local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
+		return {
+			Position = {
+				X = x,
+				Y = y,
+				Z = z,
+			},
+			Rotation = { r00, r01, r02, r10, r11, r12, r20, r21, r22 },
+			_type = "CFrame",
+		}
+	end
+	if t == "BrickColor" then
+		local bc = val
+		return {
+			Name = bc.Name,
+			_type = "BrickColor",
+		}
+	end
+	if t == "EnumItem" then
+		local e = val
+		return {
+			Name = e.Name,
+			EnumType = tostring(e.EnumType),
+			Value = e.Value,
+			_type = "EnumItem",
+		}
+	end
+	if t == "Instance" then
+		return {
+			Path = getInstancePath(val),
+			_type = "Instance",
+		}
+	end
+	if t == "NumberRange" then
+		local nr = val
+		return {
+			Min = nr.Min,
+			Max = nr.Max,
+			_type = "NumberRange",
+		}
+	end
+	if t == "Rect" then
+		local r = val
+		return {
+			Min = {
+				X = r.Min.X,
+				Y = r.Min.Y,
+			},
+			Max = {
+				X = r.Max.X,
+				Y = r.Max.Y,
+			},
+			_type = "Rect",
+		}
+	end
 	return tostring(val)
 end
 local function serializePropForHash(val)
@@ -3204,12 +3631,50 @@ local function serializePropForHash(val)
 	local _val = val
 	if type(_val) == "table" then
 		local t = val
-		if t._type == "UDim2" then
+		local typeTag = t._type
+		if typeTag == nil then
+			return "table"
+		end
+		if typeTag == "UDim2" then
 			local x = t.X
 			local y = t.Y
 			return `UDim2({x.Scale},{x.Offset},{y.Scale},{y.Offset})`
 		end
-		return "table"
+		if typeTag == "Vector3" then
+			return `V3({t.X},{t.Y},{t.Z})`
+		end
+		if typeTag == "Vector2" then
+			return `V2({t.X},{t.Y})`
+		end
+		if typeTag == "Color3" then
+			return `C3({t.R},{t.G},{t.B})`
+		end
+		if typeTag == "UDim" then
+			return `UDim({t.Scale},{t.Offset})`
+		end
+		if typeTag == "CFrame" then
+			local p = t.Position
+			local r = t.Rotation
+			return `CFrame({p.X},{p.Y},{p.Z},{table.concat(r, ",")})`
+		end
+		if typeTag == "BrickColor" then
+			return `BrickColor({t.Name})`
+		end
+		if typeTag == "EnumItem" then
+			return `Enum({t.EnumType}.{t.Name})`
+		end
+		if typeTag == "Instance" then
+			return `Instance({t.Path})`
+		end
+		if typeTag == "NumberRange" then
+			return `NumberRange({t.Min},{t.Max})`
+		end
+		if typeTag == "Rect" then
+			local min = t.Min
+			local max = t.Max
+			return `Rect({min.X},{min.Y},{max.X},{max.Y})`
+		end
+		return `{typeTag}-table`
 	end
 	return tostring(val)
 end
@@ -3236,7 +3701,9 @@ local function getFileTree(requestData)
 	local startInstance = getInstanceByPath(path)
 	if not startInstance then
 		return {
-			error = `Path not found: {path}`,
+			error = `Path not found: {path}. Paths use dot-notation starting with 'game' (e.g. 'game.Workspace.Folder').`,
+			errorCode = "path_not_found",
+			path = path,
 		}
 	end
 	local function buildTree(instance, depth)
@@ -3282,6 +3749,8 @@ local function searchFiles(requestData)
 	if not (query ~= "" and query) then
 		return {
 			error = "Query is required",
+			errorCode = "missing_arg",
+			argName = "query",
 		}
 	end
 	local results = {}
@@ -3317,10 +3786,13 @@ local function searchFiles(requestData)
 		end
 	end
 	searchRecursive(game)
+	if #results == 0 then
+		return {
+			results = {},
+		}
+	end
 	return {
 		results = results,
-		query = query,
-		searchType = searchType,
 		count = #results,
 	}
 end
@@ -3354,6 +3826,8 @@ local function getServices(requestData)
 		else
 			return {
 				error = `Service not found: {serviceName}`,
+				errorCode = "service_not_found",
+				serviceName = serviceName,
 			}
 		end
 	else
@@ -3389,6 +3863,8 @@ local function searchObjects(requestData)
 	if not (query ~= "" and query) then
 		return {
 			error = "Query is required",
+			errorCode = "missing_arg",
+			argName = "query",
 		}
 	end
 	local results = {}
@@ -3428,10 +3904,13 @@ local function searchObjects(requestData)
 		end
 	end
 	searchRecursive(game)
+	if #results == 0 then
+		return {
+			results = {},
+		}
+	end
 	return {
 		results = results,
-		query = query,
-		searchType = searchType,
 		count = #results,
 	}
 end
@@ -3451,12 +3930,16 @@ local function getInstanceProperties(requestData)
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name or get_project_structure() to inspect.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local defaultInstance = if requestedMode == "delta" then getDefaultInstance(instance.ClassName) else nil
@@ -3498,41 +3981,47 @@ local function getInstanceProperties(requestData)
 				properties.LineCount = #(Utils.splitLines(src))
 			end
 			if instance:IsA("BaseScript") then
-				properties.Enabled = tostring(instance.Enabled)
+				properties.Enabled = instance.Enabled
+				local okRunCtx, runCtx = pcall(function()
+					return instance.RunContext
+				end)
+				if okRunCtx and runCtx ~= nil then
+					properties.RunContext = formatPropValue(runCtx)
+				end
 			end
 		end
 		local classSpecific = { { instance:IsA("Part"), "Shape", function()
-			return tostring(instance.Shape)
+			return formatPropValue(instance.Shape)
 		end }, { instance:IsA("BasePart"), "TopSurface", function()
-			return tostring(instance.TopSurface)
+			return formatPropValue(instance.TopSurface)
 		end }, { instance:IsA("BasePart"), "BottomSurface", function()
-			return tostring(instance.BottomSurface)
+			return formatPropValue(instance.BottomSurface)
 		end }, { instance:IsA("MeshPart"), "MeshId", function()
-			return tostring(instance.MeshId)
+			return instance.MeshId
 		end }, { instance:IsA("MeshPart"), "TextureID", function()
-			return tostring(instance.TextureID)
+			return instance.TextureID
 		end }, { instance:IsA("SpecialMesh"), "MeshId", function()
-			return tostring(instance.MeshId)
+			return instance.MeshId
 		end }, { instance:IsA("SpecialMesh"), "TextureId", function()
-			return tostring(instance.TextureId)
+			return instance.TextureId
 		end }, { instance:IsA("SpecialMesh"), "MeshType", function()
-			return tostring(instance.MeshType)
+			return formatPropValue(instance.MeshType)
 		end }, { instance:IsA("Sound"), "SoundId", function()
-			return tostring(instance.SoundId)
+			return instance.SoundId
 		end }, { instance:IsA("Sound"), "TimeLength", function()
-			return tostring(instance.TimeLength)
+			return instance.TimeLength
 		end }, { instance:IsA("Sound"), "IsPlaying", function()
-			return tostring(instance.IsPlaying)
+			return instance.IsPlaying
 		end }, { instance:IsA("Animation"), "AnimationId", function()
-			return tostring(instance.AnimationId)
+			return instance.AnimationId
 		end }, { instance:IsA("Decal") or instance:IsA("Texture"), "Texture", function()
-			return tostring(instance.Texture)
+			return instance.Texture
 		end }, { instance:IsA("Shirt"), "ShirtTemplate", function()
-			return tostring(instance.ShirtTemplate)
+			return instance.ShirtTemplate
 		end }, { instance:IsA("Pants"), "PantsTemplate", function()
-			return tostring(instance.PantsTemplate)
+			return instance.PantsTemplate
 		end }, { instance:IsA("ShirtGraphic"), "Graphic", function()
-			return tostring(instance.Graphic)
+			return instance.Graphic
 		end } }
 		for _, _binding_1 in classSpecific do
 			local applies = _binding_1[1]
@@ -3560,11 +4049,11 @@ local function getInstanceProperties(requestData)
 		end
 		local childCount = #instance:GetChildren()
 		if childCount > 0 then
-			properties.ChildCount = tostring(childCount)
+			properties.ChildCount = childCount
 		elseif effectiveMode == "delta" then
 			omittedDefaultCount += 1
 		else
-			properties.ChildCount = "0"
+			properties.ChildCount = 0
 		end
 	end)
 	if success then
@@ -3584,11 +4073,18 @@ local function getInstanceProperties(requestData)
 		}
 		if effectiveMode == "delta" then
 			resp.omittedDefaultCount = omittedDefaultCount
+			if omittedDefaultCount == 0 then
+				resp.deltaNote = "all properties shown (no defaults matched)"
+			end
+		elseif requestedMode == "delta" then
+			resp.deltaNote = "delta unavailable for this className; full mode used"
 		end
 		return resp
 	else
 		return {
 			error = `Failed to get properties: {result}`,
+			errorCode = "property_read_failed",
+			instancePath = instancePath,
 		}
 	end
 end
@@ -3598,12 +4094,16 @@ local function getInstanceChildren(requestData)
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name or get_project_structure() to inspect.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local children = {}
@@ -3639,8 +4139,13 @@ local function getInstanceChildren(requestData)
 			hash = hash,
 		}
 	end
+	if #children == 0 then
+		return {
+			children = {},
+			hash = hash,
+		}
+	end
 	return {
-		instancePath = instancePath,
 		children = children,
 		count = #children,
 		hash = hash,
@@ -3652,6 +4157,7 @@ local function searchByProperty(requestData)
 	if not (propertyName ~= "" and propertyName) or not (propertyValue ~= "" and propertyValue) then
 		return {
 			error = "Property name and value are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local results = {}
@@ -3679,29 +4185,70 @@ local function searchByProperty(requestData)
 		end
 	end
 	searchRecursive(game)
+	if #results == 0 then
+		return {
+			results = {},
+		}
+	end
 	return {
-		propertyName = propertyName,
-		propertyValue = propertyValue,
 		results = results,
 		count = #results,
 	}
 end
+local function hashTree(node)
+	local parts = {}
+	local function walk(n)
+		local _condition = n.path
+		if _condition == nil then
+			_condition = ""
+		end
+		local _arg0 = tostring(_condition)
+		table.insert(parts, _arg0)
+		local _condition_1 = n.className
+		if _condition_1 == nil then
+			_condition_1 = ""
+		end
+		local _arg0_1 = tostring(_condition_1)
+		table.insert(parts, _arg0_1)
+		local _condition_2 = n.name
+		if _condition_2 == nil then
+			_condition_2 = ""
+		end
+		local _arg0_2 = tostring(_condition_2)
+		table.insert(parts, _arg0_2)
+		local kids = n.children
+		if kids then
+			local _arg0_3 = `#{#kids}`
+			table.insert(parts, _arg0_3)
+			for _, k in kids do
+				walk(k)
+			end
+		end
+	end
+	walk(node)
+	return Hashing.fingerprint(parts)
+end
 local function getProjectStructure(requestData)
-	local _condition = (requestData.path)
+	local _condition = (requestData.instancePath)
 	if _condition == nil then
-		_condition = ""
+		_condition = (requestData.path)
 	end
-	local startPath = _condition
-	local _condition_1 = (requestData.maxDepth)
+	local _condition_1 = _condition
 	if _condition_1 == nil then
-		_condition_1 = 3
+		_condition_1 = ""
 	end
-	local maxDepth = _condition_1
-	local _condition_2 = (requestData.scriptsOnly)
+	local startPath = _condition_1
+	local _condition_2 = (requestData.maxDepth)
 	if _condition_2 == nil then
-		_condition_2 = false
+		_condition_2 = 3
 	end
-	local showScriptsOnly = _condition_2
+	local maxDepth = _condition_2
+	local _condition_3 = (requestData.scriptsOnly)
+	if _condition_3 == nil then
+		_condition_3 = false
+	end
+	local showScriptsOnly = _condition_3
+	local knownHash = requestData.knownHash
 	if startPath == "" or startPath == "game" then
 		local services = {}
 		local mainServices = { "Workspace", "ServerScriptService", "ServerStorage", "ReplicatedStorage", "StarterGui", "StarterPack", "StarterPlayer", "Players" }
@@ -3720,15 +4267,40 @@ local function getProjectStructure(requestData)
 				table.insert(services, _arg0)
 			end
 		end
+		local overviewParts = { "service_overview" }
+		for _, s in services do
+			local _condition_4 = s.path
+			if _condition_4 == nil then
+				_condition_4 = ""
+			end
+			local _arg0 = tostring(_condition_4)
+			table.insert(overviewParts, _arg0)
+			local _condition_5 = s.childCount
+			if _condition_5 == nil then
+				_condition_5 = 0
+			end
+			local _arg0_1 = tostring(_condition_5)
+			table.insert(overviewParts, _arg0_1)
+		end
+		local overviewHash = Hashing.fingerprint(overviewParts)
+		if knownHash ~= nil and knownHash == overviewHash then
+			return {
+				unchanged = true,
+				hash = overviewHash,
+			}
+		end
 		return {
 			type = "service_overview",
 			services = services,
+			hash = overviewHash,
 		}
 	end
 	local startInstance = getInstanceByPath(startPath)
 	if not startInstance then
 		return {
-			error = `Path not found: {startPath}`,
+			error = `Path not found: {startPath}. Paths use dot-notation starting with 'game'.`,
+			errorCode = "path_not_found",
+			path = startPath,
 		}
 	end
 	local function getStructure(instance, depth)
@@ -3861,13 +4433,24 @@ local function getProjectStructure(requestData)
 		end
 		return node
 	end
-	return getStructure(startInstance, 0)
+	local tree = getStructure(startInstance, 0)
+	local treeHash = hashTree(tree)
+	if knownHash ~= nil and knownHash == treeHash then
+		return {
+			unchanged = true,
+			hash = treeHash,
+		}
+	end
+	tree.hash = treeHash
+	return tree
 end
 local function grepScripts(requestData)
 	local pattern = requestData.pattern
 	if not (pattern ~= "" and pattern) then
 		return {
 			error = "pattern is required",
+			errorCode = "missing_arg",
+			argName = "pattern",
 		}
 	end
 	local _condition = (requestData.caseSensitive)
@@ -4032,19 +4615,31 @@ local function grepScripts(requestData)
 		end
 	end
 	searchInstance(startInstance)
-	return {
+	local matched = #results
+	if matched == 0 then
+		return {
+			results = {},
+			scriptsSearched = scriptsSearched,
+		}
+	end
+	local resp = {
 		results = results,
 		totalMatches = if hitLimit then `>{maxResults}` else totalMatches,
 		scriptsSearched = scriptsSearched,
-		scriptsMatched = #results,
-		truncated = hitLimit,
+		scriptsMatched = matched,
 	}
+	if hitLimit then
+		resp.truncated = true
+	end
+	return resp
 end
 local function getDescendants(requestData)
 	local instancePath = requestData.instancePath
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
+			errorCode = "missing_arg",
+			argName = "instancePath",
 		}
 	end
 	local _condition = (requestData.maxDepth)
@@ -4053,10 +4648,13 @@ local function getDescendants(requestData)
 	end
 	local maxDepth = _condition
 	local classFilter = requestData.classFilter
+	local knownHash = requestData.knownHash
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name or get_project_structure() to inspect.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	local descendants = {}
@@ -4083,11 +4681,34 @@ local function getDescendants(requestData)
 		end
 	end
 	collect(instance, 1)
+	local _condition_1 = classFilter
+	if _condition_1 == nil then
+		_condition_1 = ""
+	end
+	local hashParts = { "descendants", instancePath, maxDepth, _condition_1, #descendants }
+	for _, d in descendants do
+		local _path = d.path
+		table.insert(hashParts, _path)
+		local _className = d.className
+		table.insert(hashParts, _className)
+	end
+	local hash = Hashing.fingerprint(hashParts)
+	if knownHash ~= nil and knownHash == hash then
+		return {
+			unchanged = true,
+			hash = hash,
+		}
+	end
+	if #descendants == 0 then
+		return {
+			descendants = {},
+			hash = hash,
+		}
+	end
 	return {
-		instancePath = instancePath,
 		descendants = descendants,
 		count = #descendants,
-		maxDepth = maxDepth,
+		hash = hash,
 	}
 end
 local function compareInstances(requestData)
@@ -4096,18 +4717,23 @@ local function compareInstances(requestData)
 	if not (instancePathA ~= "" and instancePathA) or not (instancePathB ~= "" and instancePathB) then
 		return {
 			error = "Both instancePathA and instancePathB are required",
+			errorCode = "missing_arg",
 		}
 	end
 	local instA = getInstanceByPath(instancePathA)
 	if not instA then
 		return {
 			error = `Instance not found: {instancePathA}`,
+			errorCode = "instance_not_found",
+			instancePath = instancePathA,
 		}
 	end
 	local instB = getInstanceByPath(instancePathB)
 	if not instB then
 		return {
 			error = `Instance not found: {instancePathB}`,
+			errorCode = "instance_not_found",
+			instancePath = instancePathB,
 		}
 	end
 	local commonProps = { "Name", "ClassName", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "BrickColor", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
@@ -4155,6 +4781,7 @@ local function getOutputLog(requestData)
 	end
 	local maxEntries = _condition
 	local messageTypeFilter = requestData.messageType
+	local knownHash = requestData.knownHash
 	local success, result = pcall(function()
 		local LogService = game:GetService("LogService")
 		local history = LogService:GetLogHistory()
@@ -4193,17 +4820,46 @@ local function getOutputLog(requestData)
 				table.insert(finalEntries, _arg0)
 			end
 		end
+		local _condition_1 = messageTypeFilter
+		if _condition_1 == nil then
+			_condition_1 = ""
+		end
+		local hashParts = { "output_log", _condition_1, #finalEntries }
+		for _, e in finalEntries do
+			local _arg0 = tostring(e.timestamp)
+			table.insert(hashParts, _arg0)
+			local _arg0_1 = tostring(e.messageType)
+			table.insert(hashParts, _arg0_1)
+			local _arg0_2 = tostring(e.message)
+			table.insert(hashParts, _arg0_2)
+		end
+		local hash = Hashing.fingerprint(hashParts)
+		if #finalEntries == 0 then
+			return {
+				entries = {},
+				hash = hash,
+			}
+		end
 		return {
 			entries = finalEntries,
 			count = #finalEntries,
 			totalAvailable = #allEntries,
+			hash = hash,
 		}
 	end)
 	if success then
-		return result
+		local r = result
+		if knownHash ~= nil and knownHash == r.hash then
+			return {
+				unchanged = true,
+				hash = r.hash,
+			}
+		end
+		return r
 	end
 	return {
 		error = `Failed to get output log: {result}`,
+		errorCode = "output_log_failed",
 	}
 end
 return {
@@ -4683,64 +5339,229 @@ local function setScriptSource(requestData)
 		error = `Failed to set script source. UpdateSourceAsync failed: {updateResult}. Direct assignment failed: {directResult}. Replace method failed: {replaceResult}`,
 	}
 end
+local function positionToLine(source, bytePos)
+	local line = 1
+	local i = 1
+	while i < bytePos do
+		local nlPos = string.find(source, "\n", i, true)
+		if nlPos == nil or nlPos >= bytePos then
+			break
+		end
+		line += 1
+		i = nlPos + 1
+	end
+	return line
+end
+local function findAllMatches(source, needle)
+	local positions = {}
+	local searchPos = 1
+	local needleLen = #needle
+	if needleLen == 0 then
+		return positions
+	end
+	while true do
+		local foundStart = string.find(source, needle, searchPos, true)
+		if foundStart == nil then
+			break
+		end
+		table.insert(positions, foundStart)
+		searchPos = foundStart + needleLen
+		if #positions > 50 then
+			break
+		end
+	end
+	return positions
+end
+local function collapseWhitespace(s)
+	return (string.gsub((string.gsub(s, "[ \t]+", " ")), "\n+", "\n"))
+end
+local function validateScript(instance)
+	local isModule = instance:IsA("ModuleScript")
+	local source = readScriptSource(instance)
+	local fn, compileError = loadstring(source, `={instance.Name}`)
+	if not fn then
+		local errStr = tostring(compileError)
+		local lineStr = string.match(errStr, ":(%d+):")
+		return {
+			ok = false,
+			kind = "syntax",
+			error = errStr,
+			line = if lineStr ~= nil then tonumber(lineStr) else nil,
+		}
+	end
+	if not isModule then
+		return {
+			ok = true,
+			kind = "syntax",
+		}
+	end
+	local parent = instance.Parent
+	if not parent then
+		return {
+			ok = true,
+			kind = "syntax",
+			note = "ModuleScript has no Parent; require validation skipped",
+		}
+	end
+	local cloneOk, cloneOrErr = pcall(function()
+		local clone = instance:Clone()
+		clone.Name = `{instance.Name}_MCPValidationClone`
+		clone.Parent = parent
+		return clone
+	end)
+	if not cloneOk then
+		return {
+			ok = false,
+			kind = "clone",
+			error = tostring(cloneOrErr),
+		}
+	end
+	local clone = cloneOrErr
+	local reqOk, reqResult = pcall(require, clone)
+	local cleanupOk = { pcall(function()
+		return clone:Destroy()
+	end) }
+	if not cleanupOk then
+		warn("MCP: failed to cleanup validation clone")
+	end
+	if not reqOk then
+		return {
+			ok = false,
+			kind = "require",
+			error = tostring(reqResult),
+		}
+	end
+	return {
+		ok = true,
+		kind = "require",
+		returnType = typeof(reqResult),
+	}
+end
 local escapeLuaPattern, escapeLuaReplacement
 local function editScriptLines(requestData)
 	local instancePath = requestData.instancePath
 	local oldString = requestData.old_string
 	local newString = requestData.new_string
+	local validateAfter = requestData.validateAfter
 	if not (instancePath ~= "" and instancePath) or oldString == nil or newString == nil then
 		return {
 			error = "Instance path, old_string, and new_string are required",
+			errorCode = "missing_arg",
 		}
 	end
 	oldString = normalizeEscapes(oldString)
 	newString = normalizeEscapes(newString)
+	if oldString == "" then
+		return {
+			error = "old_string cannot be empty. Use insert_script_lines for inserts or set_script_source to replace the whole file.",
+			errorCode = "empty_old_string",
+		}
+	end
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
 		return {
-			error = `Instance is not a script-like object: {instance.ClassName}`,
+			error = `Instance is not a script: className={instance.ClassName}`,
+			errorCode = "not_a_script",
+			instancePath = instancePath,
+			className = instance.ClassName,
+		}
+	end
+	local rawSource = readScriptSource(instance)
+	local source = (string.gsub((string.gsub(rawSource, "\r\n", "\n")), "\r", "\n"))
+	local oldNorm = (string.gsub((string.gsub(oldString, "\r\n", "\n")), "\r", "\n"))
+	local newNorm = (string.gsub((string.gsub(newString, "\r\n", "\n")), "\r", "\n"))
+	if oldNorm == newNorm then
+		local sourceHash = Hashing.fingerprint({ source })
+		return {
+			success = true,
+			noOp = true,
+			hash = sourceHash,
+			note = "old_string equals new_string; no change applied.",
+		}
+	end
+	local matches = findAllMatches(source, oldNorm)
+	if #matches == 0 then
+		local sourceLines = splitLines(source)
+		local sourceLineCount = #sourceLines
+		local sourceHash = Hashing.fingerprint({ source })
+		local fuzzyMatches = findAllMatches(collapseWhitespace(source), collapseWhitespace(oldNorm))
+		local hint = if #fuzzyMatches == 1 then "Whitespace-insensitive match found at 1 location. Likely tabs/spaces or line-ending mismatch. Re-read with get_script_source(startLine,endLine) and copy verbatim." elseif #fuzzyMatches > 1 then `Whitespace-insensitive search found {#fuzzyMatches} matches but exact match found 0. Add more surrounding context.` else "No similar text found at all. Verify instancePath and that you read the current source via get_script_source."
+		local previewLines = {}
+		local previewCount = math.min(3, sourceLineCount)
+		do
+			local i = 0
+			local _shouldIncrement = false
+			while true do
+				if _shouldIncrement then
+					i += 1
+				else
+					_shouldIncrement = true
+				end
+				if not (i < previewCount) then
+					break
+				end
+				local _arg0 = `{i + 1}: {sourceLines[i + 1]}`
+				table.insert(previewLines, _arg0)
+			end
+		end
+		return {
+			error = "old_string not found in script",
+			errorCode = "edit_no_match",
+			instancePath = instancePath,
+			scriptLineCount = sourceLineCount,
+			scriptHash = sourceHash,
+			fuzzyMatchCount = #fuzzyMatches,
+			hint = hint,
+			scriptPreview = table.concat(previewLines, "\n"),
+		}
+	end
+	if #matches > 1 then
+		local matchLines = {}
+		for _, pos in matches do
+			local _arg0 = positionToLine(source, pos)
+			table.insert(matchLines, _arg0)
+		end
+		return {
+			error = `old_string matches at {#matches} locations`,
+			errorCode = "edit_ambiguous",
+			instancePath = instancePath,
+			matchLines = matchLines,
+			matchCount = #matches,
+			hint = "Add 1-2 surrounding lines to disambiguate, or use a longer block.",
 		}
 	end
 	local recordingId = beginRecording(`Edit script: {instance.Name}`)
 	local success, result = pcall(function()
-		local source = readScriptSource(instance)
-		-- Count occurrences to ensure uniqueness
-		local count = 0
-		local searchPos = 1
-		local searchLen = #oldString
-		while true do
-			local foundStart = string.find(source, oldString, searchPos, true)
-			if foundStart == nil then
-				break
-			end
-			count += 1
-			if count > 1 then
-				break
-			end
-			searchPos = foundStart + searchLen
-		end
-		if count == 0 then
-			error("old_string not found in script")
-		end
-		if count > 1 then
-			error("old_string matches multiple locations. Provide more surrounding context to make it unique")
-		end
-		-- Perform the replacement (plain literal find + replace)
-		local escaped = escapeLuaPattern(oldString)
-		local escapedRepl = escapeLuaReplacement(newString)
+		local escaped = escapeLuaPattern(oldNorm)
+		local escapedRepl = escapeLuaReplacement(newNorm)
 		local newSource = string.gsub(source, escaped, escapedRepl, 1)
 		ScriptEditorService:UpdateSourceAsync(instance, function()
 			return newSource
 		end)
-		return {
+		local replacedAtLine = positionToLine(source, matches[1])
+		local oldSplit = splitLines(oldNorm)
+		local newSplit = splitLines(newNorm)
+		local linesDelta = #newSplit - #oldSplit
+		local newSourceLines = splitLines(newSource)
+		local hash = Hashing.fingerprint({ newSource })
+		local resp = {
 			success = true,
-			instancePath = instancePath,
+			hash = hash,
+			replacedAtLine = replacedAtLine,
+			linesDelta = linesDelta,
+			newLineCount = #newSourceLines,
 		}
+		if validateAfter == true then
+			resp.validation = validateScript(instance)
+		end
+		return resp
 	end)
 	if success then
 		finishRecording(recordingId, true)
@@ -4749,6 +5570,8 @@ local function editScriptLines(requestData)
 	finishRecording(recordingId, false)
 	return {
 		error = `Failed to edit script: {result}`,
+		errorCode = "edit_apply_failed",
+		instancePath = instancePath,
 	}
 end
 local function insertScriptLines(requestData)
@@ -5116,7 +5939,7 @@ local function getScriptAnalysis(requestData)
 		end
 		local source = readScriptSource(scriptInstance)
 		local diagnostics = {}
-		local fn, compileError = loadstring(source)
+		local fn, compileError = loadstring(source, `={scriptInstance.Name}`)
 		local _value = not fn and compileError
 		if _value ~= "" and _value then
 			local lineStr = string.match(tostring(compileError), ":(%d+):")
@@ -5294,11 +6117,15 @@ local function startPlaytest(requestData)
 	if mode ~= "play" and mode ~= "run" then
 		return {
 			error = 'mode must be "play" or "run"',
+			errorCode = "invalid_arg",
+			argName = "mode",
 		}
 	end
 	if testRunning then
 		return {
 			error = "A test is already running",
+			errorCode = "test_in_progress",
+			retryable = false,
 		}
 	end
 	testRunning = true
@@ -5398,6 +6225,7 @@ local function stopPlaytest(_requestData)
 	end
 	return {
 		error = "No MCP-started test is running and direct stop failed. The playtest may have been started manually.",
+		errorCode = "no_test_running",
 	}
 end
 local function getPlaytestOutput(_requestData)
@@ -5418,6 +6246,7 @@ local function characterNavigation(requestData)
 	if not testRunning then
 		return {
 			error = "Playtest must be running. Start a playtest in 'play' mode first.",
+			errorCode = "no_test_running",
 		}
 	end
 	local position = requestData.position
@@ -5435,6 +6264,7 @@ local function characterNavigation(requestData)
 	if not position and not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Either position [x, y, z] or instancePath is required",
+			errorCode = "missing_arg",
 		}
 	end
 	local navData
@@ -5479,6 +6309,8 @@ local function characterNavigation(requestData)
 	end
 	return {
 		error = `Navigation timed out after {timeout} seconds`,
+		errorCode = "timeout",
+		retryable = true,
 	}
 end
 return {
