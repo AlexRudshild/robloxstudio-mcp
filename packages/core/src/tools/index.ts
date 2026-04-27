@@ -347,9 +347,7 @@ export class RobloxStudioTools {
     if (!objects || objects.length === 0) {
       throw new Error('Objects array is required for mass_create_objects');
     }
-    const hasProperties = objects.some(o => o.properties && Object.keys(o.properties).length > 0);
-    const endpoint = hasProperties ? '/api/mass-create-objects-with-properties' : '/api/mass-create-objects';
-    const response = await this.client.request(endpoint, { objects });
+    const response = await this.client.request('/api/mass-create-objects', { objects });
     return {
       content: [
         {
