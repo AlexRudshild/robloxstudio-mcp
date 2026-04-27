@@ -1,4 +1,5 @@
 import Utils from "../Utils";
+import Hashing from "../Hashing";
 
 const { getInstancePath, getInstanceByPath, readScriptSource } = Utils;
 
@@ -30,6 +31,34 @@ function formatPropValue(val: unknown): unknown {
 		};
 	}
 	return tostring(val);
+}
+
+function serializePropForHash(val: unknown): string {
+	if (val === undefined) return "nil";
+	if (typeIs(val, "table")) {
+		const t = val as Record<string, unknown>;
+		if (t._type === "UDim2") {
+			const x = t.X as Record<string, number>;
+			const y = t.Y as Record<string, number>;
+			return `UDim2(${x.Scale},${x.Offset},${y.Scale},${y.Offset})`;
+		}
+		return "table";
+	}
+	return tostring(val);
+}
+
+function hashProperties(instancePath: string, mode: string, props: Record<string, unknown>): string {
+	const keys: string[] = [];
+	for (const [k] of pairs(props)) {
+		keys.push(k as string);
+	}
+	keys.sort();
+	const parts: Array<string | number | boolean> = ["instance-props", instancePath, mode];
+	for (const k of keys) {
+		parts.push(k);
+		parts.push(serializePropForHash(props[k]));
+	}
+	return Hashing.fingerprint(parts);
 }
 
 interface TreeNode {
@@ -224,6 +253,7 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	const excludeSource = (requestData.excludeSource as boolean) ?? false;
 	const requestedMode = (requestData.mode as string) ?? "delta";
+	const knownHash = requestData.knownHash as string | undefined;
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
@@ -325,11 +355,16 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 	});
 
 	if (success) {
+		const hash = hashProperties(instancePath, effectiveMode, properties);
+		if (knownHash !== undefined && knownHash === hash) {
+			return { unchanged: true, hash };
+		}
 		const resp: Record<string, unknown> = {
 			instancePath,
 			className: instance.ClassName,
 			properties,
 			mode: effectiveMode,
+			hash,
 		};
 		if (effectiveMode === "delta") resp.omittedDefaultCount = omittedDefaultCount;
 		return resp;
@@ -340,12 +375,14 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 
 function getInstanceChildren(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
+	const knownHash = requestData.knownHash as string | undefined;
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
 	if (!instance) return { error: `Instance not found: ${instancePath}` };
 
 	const children: { name: string; className: string; path: string; hasChildren: boolean; hasSource: boolean; enabled?: boolean }[] = [];
+	const hashParts: Array<string | number | boolean> = ["instance-children", instancePath];
 	for (const child of instance.GetChildren()) {
 		const entry: { name: string; className: string; path: string; hasChildren: boolean; hasSource: boolean; enabled?: boolean } = {
 			name: child.Name,
@@ -358,9 +395,17 @@ function getInstanceChildren(requestData: Record<string, unknown>) {
 			entry.enabled = child.Enabled;
 		}
 		children.push(entry);
+		hashParts.push(child.Name);
+		hashParts.push(child.ClassName);
+		hashParts.push(entry.hasChildren);
+		hashParts.push(entry.enabled ?? false);
 	}
 
-	return { instancePath, children, count: children.size() };
+	const hash = Hashing.fingerprint(hashParts);
+	if (knownHash !== undefined && knownHash === hash) {
+		return { unchanged: true, hash };
+	}
+	return { instancePath, children, count: children.size(), hash };
 }
 
 function searchByProperty(requestData: Record<string, unknown>) {

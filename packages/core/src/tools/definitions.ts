@@ -97,7 +97,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_instance_properties',
     category: 'read',
-    description: 'Get instance properties. mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all.',
+    description: 'Get instance properties. mode="delta" (default) returns only non-default values plus omittedDefaultCount; "full" returns all. Pass knownHash from a prior response to skip resending if state unchanged ({unchanged: true, hash}).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -113,6 +113,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'string',
           enum: ['delta', 'full'],
           description: 'delta = only non-defaults (default); full = include all properties'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
         }
       },
       required: ['instancePath']
@@ -121,13 +125,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_instance_children',
     category: 'read',
-    description: 'Get children and their class types',
+    description: 'Get children and their class types. Supports knownHash to skip unchanged responses.',
     inputSchema: {
       type: 'object',
       properties: {
         instancePath: {
           type: 'string',
           description: 'Instance path (dot notation)'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
         }
       },
       required: ['instancePath']
@@ -510,13 +518,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_script_outline',
     category: 'read',
-    description: 'Get a compact symbol outline of a script: function names with signatures and line ranges, requires, and top-level locals. Read this first for a quick map; use get_script_source with startLine/endLine to drill into a specific function.',
+    description: 'Get a compact symbol outline of a script: function names with signatures and line ranges, requires, and top-level locals. Read this first for a quick map; use get_script_source with startLine/endLine to drill into a specific function. Supports knownHash for change detection.',
     inputSchema: {
       type: 'object',
       properties: {
         instancePath: {
           type: 'string',
           description: 'Script instance path'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
         }
       },
       required: ['instancePath']
@@ -525,7 +537,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'get_script_source',
     category: 'read',
-    description: 'Get script source with line numbers. Use startLine/endLine for large scripts. For an overview, prefer get_script_outline.',
+    description: 'Get script source with line numbers. Use startLine/endLine for large scripts. For an overview, prefer get_script_outline. Supports knownHash for change detection.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -540,6 +552,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         endLine: {
           type: 'number',
           description: 'End line (inclusive)'
+        },
+        knownHash: {
+          type: 'string',
+          description: 'Hash from a previous response. If unchanged, server returns {unchanged:true,hash}.'
         }
       },
       required: ['instancePath']

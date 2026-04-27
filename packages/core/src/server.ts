@@ -84,9 +84,9 @@ export class RobloxStudioMCPServer {
             return await this.tools.searchObjects((args as any)?.query as string, (args as any)?.searchType || 'name', (args as any)?.propertyName);
 
           case 'get_instance_properties':
-            return await this.tools.getInstanceProperties((args as any)?.instancePath as string, (args as any)?.excludeSource, (args as any)?.mode);
+            return await this.tools.getInstanceProperties((args as any)?.instancePath as string, (args as any)?.excludeSource, (args as any)?.mode, (args as any)?.knownHash);
           case 'get_instance_children':
-            return await this.tools.getInstanceChildren((args as any)?.instancePath as string);
+            return await this.tools.getInstanceChildren((args as any)?.instancePath as string, (args as any)?.knownHash);
           case 'search_by_property':
             return await this.tools.searchByProperty((args as any)?.propertyName as string, (args as any)?.propertyValue as string);
           case 'get_class_info':
@@ -132,9 +132,9 @@ export class RobloxStudioMCPServer {
             });
 
           case 'get_script_source':
-            return await this.tools.getScriptSource((args as any)?.instancePath as string, (args as any)?.startLine, (args as any)?.endLine);
+            return await this.tools.getScriptSource((args as any)?.instancePath as string, (args as any)?.startLine, (args as any)?.endLine, (args as any)?.knownHash);
           case 'get_script_outline':
-            return await this.tools.getScriptOutline((args as any)?.instancePath as string);
+            return await this.tools.getScriptOutline((args as any)?.instancePath as string, (args as any)?.knownHash);
           case 'set_script_source':
             return await this.tools.setScriptSource((args as any)?.instancePath as string, (args as any)?.source as string);
 

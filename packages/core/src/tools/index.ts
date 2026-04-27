@@ -108,11 +108,11 @@ export class RobloxStudioTools {
   }
 
 
-  async getInstanceProperties(instancePath: string, excludeSource?: boolean, mode?: 'delta' | 'full') {
+  async getInstanceProperties(instancePath: string, excludeSource?: boolean, mode?: 'delta' | 'full', knownHash?: string) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_instance_properties');
     }
-    const response = await this.client.request('/api/instance-properties', { instancePath, excludeSource, mode });
+    const response = await this.client.request('/api/instance-properties', { instancePath, excludeSource, mode, knownHash });
     return {
       content: [
         {
@@ -123,11 +123,11 @@ export class RobloxStudioTools {
     };
   }
 
-  async getInstanceChildren(instancePath: string) {
+  async getInstanceChildren(instancePath: string, knownHash?: string) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_instance_children');
     }
-    const response = await this.client.request('/api/instance-children', { instancePath });
+    const response = await this.client.request('/api/instance-children', { instancePath, knownHash });
     return {
       content: [
         {
@@ -377,14 +377,18 @@ export class RobloxStudioTools {
 
 
 
-  async getScriptSource(instancePath: string, startLine?: number, endLine?: number) {
+  async getScriptSource(instancePath: string, startLine?: number, endLine?: number, knownHash?: string) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_script_source');
     }
-    const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine });
+    const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine, knownHash });
 
     if (response.error) {
       return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+    }
+
+    if (response.unchanged) {
+      return { content: [{ type: 'text', text: JSON.stringify({ unchanged: true, hash: response.hash }) }] };
     }
 
     const scriptTypeInfo: Record<string, string> = {
@@ -446,11 +450,11 @@ export class RobloxStudioTools {
     };
   }
 
-  async getScriptOutline(instancePath: string) {
+  async getScriptOutline(instancePath: string, knownHash?: string) {
     if (!instancePath) {
       throw new Error('Instance path is required for get_script_outline');
     }
-    const response = await this.client.request('/api/get-script-outline', { instancePath });
+    const response = await this.client.request('/api/get-script-outline', { instancePath, knownHash });
     if (response.error) {
       return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
     }

@@ -1,5 +1,6 @@
 import Utils from "../Utils";
 import Recording from "../Recording";
+import Hashing from "../Hashing";
 
 const ScriptEditorService = game.GetService("ScriptEditorService");
 
@@ -21,6 +22,7 @@ function getScriptSource(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	const startLine = requestData.startLine as number | undefined;
 	const endLine = requestData.endLine as number | undefined;
+	const knownHash = requestData.knownHash as string | undefined;
 
 	if (!instancePath) return { error: "Instance path is required" };
 
@@ -32,6 +34,16 @@ function getScriptSource(requestData: Record<string, unknown>) {
 
 	const [success, result] = pcall(() => {
 		const fullSource = readScriptSource(instance);
+		const hash = Hashing.fingerprint([
+			"script-source",
+			instancePath,
+			fullSource,
+			startLine ?? -1,
+			endLine ?? -1,
+		]);
+		if (knownHash !== undefined && knownHash === hash) {
+			return { unchanged: true, hash };
+		}
 		const [lines, hasTrailingNewline] = splitLines(fullSource);
 		const totalLineCount = lines.size();
 
@@ -67,6 +79,7 @@ function getScriptSource(requestData: Record<string, unknown>) {
 			endLine: returnedEndLine,
 			isPartial: startLine !== undefined || endLine !== undefined,
 			truncated: false,
+			hash,
 		};
 
 		if (startLine === undefined && endLine === undefined && fullSource.size() > 50000) {
@@ -138,6 +151,7 @@ function countMatches(line: string, pattern: string): number {
 
 function getScriptOutline(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
+	const knownHash = requestData.knownHash as string | undefined;
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
@@ -147,6 +161,10 @@ function getScriptOutline(requestData: Record<string, unknown>) {
 	}
 
 	const source = readScriptSource(instance);
+	const hash = Hashing.fingerprint(["script-outline", instancePath, source]);
+	if (knownHash !== undefined && knownHash === hash) {
+		return { unchanged: true, hash };
+	}
 	const [lines] = splitLines(source);
 	const totalLines = lines.size();
 
@@ -277,6 +295,7 @@ function getScriptOutline(requestData: Record<string, unknown>) {
 		functions,
 		requires,
 		topLocals: topLocals.size() > 30 ? [...topLocals].filter((_, i) => i < 30) : topLocals,
+		hash,
 	};
 }
 

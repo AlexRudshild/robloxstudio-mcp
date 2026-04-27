@@ -3154,6 +3154,7 @@ return {
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
 local Utils = TS.import(script, script.Parent.Parent, "Utils")
+local Hashing = TS.import(script, script.Parent.Parent, "Hashing")
 local _binding = Utils
 local getInstancePath = _binding.getInstancePath
 local getInstanceByPath = _binding.getInstanceByPath
@@ -3196,6 +3197,36 @@ local function formatPropValue(val)
 		}
 	end
 	return tostring(val)
+end
+local function serializePropForHash(val)
+	if val == nil then
+		return "nil"
+	end
+	local _val = val
+	if type(_val) == "table" then
+		local t = val
+		if t._type == "UDim2" then
+			local x = t.X
+			local y = t.Y
+			return `UDim2({x.Scale},{x.Offset},{y.Scale},{y.Offset})`
+		end
+		return "table"
+	end
+	return tostring(val)
+end
+local function hashProperties(instancePath, mode, props)
+	local keys = {}
+	for k in pairs(props) do
+		table.insert(keys, k)
+	end
+	table.sort(keys)
+	local parts = { "instance-props", instancePath, mode }
+	for _, k in keys do
+		table.insert(parts, k)
+		local _arg0 = serializePropForHash(props[k])
+		table.insert(parts, _arg0)
+	end
+	return Hashing.fingerprint(parts)
 end
 local function getFileTree(requestData)
 	local _condition = (requestData.path)
@@ -3417,6 +3448,7 @@ local function getInstanceProperties(requestData)
 		_condition_1 = "delta"
 	end
 	local requestedMode = _condition_1
+	local knownHash = requestData.knownHash
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
@@ -3537,11 +3569,19 @@ local function getInstanceProperties(requestData)
 		end
 	end)
 	if success then
+		local hash = hashProperties(instancePath, effectiveMode, properties)
+		if knownHash ~= nil and knownHash == hash then
+			return {
+				unchanged = true,
+				hash = hash,
+			}
+		end
 		local resp = {
 			instancePath = instancePath,
 			className = instance.ClassName,
 			properties = properties,
 			mode = effectiveMode,
+			hash = hash,
 		}
 		if effectiveMode == "delta" then
 			resp.omittedDefaultCount = omittedDefaultCount
@@ -3555,6 +3595,7 @@ local function getInstanceProperties(requestData)
 end
 local function getInstanceChildren(requestData)
 	local instancePath = requestData.instancePath
+	local knownHash = requestData.knownHash
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
@@ -3567,6 +3608,7 @@ local function getInstanceChildren(requestData)
 		}
 	end
 	local children = {}
+	local hashParts = { "instance-children", instancePath }
 	for _, child in instance:GetChildren() do
 		local entry = {
 			name = child.Name,
@@ -3579,11 +3621,30 @@ local function getInstanceChildren(requestData)
 			entry.enabled = child.Enabled
 		end
 		table.insert(children, entry)
+		local _name = child.Name
+		table.insert(hashParts, _name)
+		local _className = child.ClassName
+		table.insert(hashParts, _className)
+		local _hasChildren = entry.hasChildren
+		table.insert(hashParts, _hasChildren)
+		local _condition = entry.enabled
+		if _condition == nil then
+			_condition = false
+		end
+		table.insert(hashParts, _condition)
+	end
+	local hash = Hashing.fingerprint(hashParts)
+	if knownHash ~= nil and knownHash == hash then
+		return {
+			unchanged = true,
+			hash = hash,
+		}
 	end
 	return {
 		instancePath = instancePath,
 		children = children,
 		count = #children,
+		hash = hash,
 	}
 end
 local function searchByProperty(requestData)
@@ -4230,6 +4291,7 @@ return {
 local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
 local Utils = TS.import(script, script.Parent.Parent, "Utils")
 local Recording = TS.import(script, script.Parent.Parent, "Recording")
+local Hashing = TS.import(script, script.Parent.Parent, "Hashing")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 local _binding = Utils
 local getInstancePath = _binding.getInstancePath
@@ -4254,6 +4316,7 @@ local function getScriptSource(requestData)
 	local instancePath = requestData.instancePath
 	local startLine = requestData.startLine
 	local endLine = requestData.endLine
+	local knownHash = requestData.knownHash
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
@@ -4272,23 +4335,38 @@ local function getScriptSource(requestData)
 	end
 	local success, result = pcall(function()
 		local fullSource = readScriptSource(instance)
+		local _condition = startLine
+		if _condition == nil then
+			_condition = -1
+		end
+		local _condition_1 = endLine
+		if _condition_1 == nil then
+			_condition_1 = -1
+		end
+		local hash = Hashing.fingerprint({ "script-source", instancePath, fullSource, _condition, _condition_1 })
+		if knownHash ~= nil and knownHash == hash then
+			return {
+				unchanged = true,
+				hash = hash,
+			}
+		end
 		local lines, hasTrailingNewline = splitLines(fullSource)
 		local totalLineCount = #lines
 		local sourceToReturn = fullSource
 		local returnedStartLine = 1
 		local returnedEndLine = totalLineCount
 		if startLine ~= nil or endLine ~= nil then
-			local _condition = startLine
-			if _condition == nil then
-				_condition = 1
+			local _condition_2 = startLine
+			if _condition_2 == nil then
+				_condition_2 = 1
 			end
-			local actualStartLine = math.max(1, _condition)
+			local actualStartLine = math.max(1, _condition_2)
 			local _exp = #lines
-			local _condition_1 = endLine
-			if _condition_1 == nil then
-				_condition_1 = #lines
+			local _condition_3 = endLine
+			if _condition_3 == nil then
+				_condition_3 = #lines
 			end
-			local actualEndLine = math.min(_exp, _condition_1)
+			local actualEndLine = math.min(_exp, _condition_3)
 			local selectedLines = {}
 			do
 				local i = actualStartLine
@@ -4302,11 +4380,11 @@ local function getScriptSource(requestData)
 					if not (i <= actualEndLine) then
 						break
 					end
-					local _condition_2 = lines[i]
-					if _condition_2 == nil then
-						_condition_2 = ""
+					local _condition_4 = lines[i]
+					if _condition_4 == nil then
+						_condition_4 = ""
 					end
-					table.insert(selectedLines, _condition_2)
+					table.insert(selectedLines, _condition_4)
 				end
 			end
 			sourceToReturn = table.concat(selectedLines, "\n")
@@ -4327,6 +4405,7 @@ local function getScriptSource(requestData)
 			endLine = returnedEndLine,
 			isPartial = startLine ~= nil or endLine ~= nil,
 			truncated = false,
+			hash = hash,
 		}
 		if startLine == nil and endLine == nil and #fullSource > 50000 then
 			local truncatedLines = {}
@@ -4393,6 +4472,7 @@ local function countMatches(line, pattern)
 end
 local function getScriptOutline(requestData)
 	local instancePath = requestData.instancePath
+	local knownHash = requestData.knownHash
 	if not (instancePath ~= "" and instancePath) then
 		return {
 			error = "Instance path is required",
@@ -4410,6 +4490,13 @@ local function getScriptOutline(requestData)
 		}
 	end
 	local source = readScriptSource(instance)
+	local hash = Hashing.fingerprint({ "script-outline", instancePath, source })
+	if knownHash ~= nil and knownHash == hash then
+		return {
+			unchanged = true,
+			hash = hash,
+		}
+	end
 	local lines = splitLines(source)
 	local totalLines = #lines
 	local functions = {}
@@ -4568,6 +4655,7 @@ local function getScriptOutline(requestData)
 		_result = topLocals
 	end
 	_object[_left] = _result
+	_object.hash = hash
 	return _object
 end
 local function setScriptSource(requestData)
@@ -5465,6 +5553,59 @@ return {
       </Item>
       <Item class="ModuleScript" referent="14">
         <Properties>
+          <string name="Name">Hashing</string>
+          <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.include.RuntimeLib)
+local HttpService = TS.import(script, script.Parent.Parent, "node_modules", "@rbxts", "services").HttpService
+local sessionSalt = HttpService:GenerateGUID(false)
+local function fnv1a(input)
+	local hash = 2166136261
+	local len = #input
+	do
+		local i = 1
+		local _shouldIncrement = false
+		while true do
+			if _shouldIncrement then
+				i += 1
+			else
+				_shouldIncrement = true
+			end
+			if not (i <= len) then
+				break
+			end
+			local byte = string.byte(input, i)
+			local _exp = hash
+			local _condition = byte
+			if _condition == nil then
+				_condition = 0
+			end
+			hash = bit32.bxor(_exp, _condition)
+			hash = bit32.band(hash * 16777619, 0xffffffff)
+		end
+	end
+	return string.format("%08x", hash)
+end
+local function hashString(input)
+	return fnv1a(`{sessionSalt}\x1f{input}`)
+end
+local function fingerprint(parts)
+	local buf = {}
+	for _, p in parts do
+		local _arg0 = tostring(p)
+		table.insert(buf, _arg0)
+	end
+	return hashString(table.concat(buf, "\x1f"))
+end
+return {
+	hashString = hashString,
+	fingerprint = fingerprint,
+	sessionSalt = sessionSalt,
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="15">
+        <Properties>
           <string name="Name">Recording</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
@@ -5493,7 +5634,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5589,7 +5730,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">UI</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6309,7 +6450,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">Utils</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6839,11 +6980,11 @@ return {
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="21">
+    <Item class="Folder" referent="22">
       <Properties>
         <string name="Name">include</string>
       </Properties>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">Promise</string>
           <string name="Source"><![CDATA[--[[
@@ -8917,7 +9058,7 @@ return Promise
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">RuntimeLib</string>
           <string name="Source"><![CDATA[local Promise = require(script.Parent.Promise)
@@ -9184,15 +9325,15 @@ return TS
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="22">
+    <Item class="Folder" referent="23">
       <Properties>
         <string name="Name">node_modules</string>
       </Properties>
-      <Item class="Folder" referent="23">
+      <Item class="Folder" referent="24">
         <Properties>
           <string name="Name">@rbxts</string>
         </Properties>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">services</string>
           <string name="Source"><![CDATA[return setmetatable({}, {
