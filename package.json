@@ -10,6 +10,8 @@
     "build": "npm run build -w packages/core && npm run build -w packages/robloxstudio-mcp && npm run build -w packages/robloxstudio-mcp-inspector",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:all": "npm run build && npm run build:plugin",
+    "update": "node scripts/update.mjs",
+    "install:plugin": "npm run build:plugin",
     "clean": "npm exec --workspaces -- npx rimraf dist",
     "dev": "npm run build -w packages/core && tsx packages/robloxstudio-mcp/src/index.ts",
     "dev:inspector": "npm run build -w packages/core && tsx packages/robloxstudio-mcp-inspector/src/index.ts",

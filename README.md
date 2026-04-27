@@ -18,18 +18,22 @@ An MCP server that lets AI explore your game structure, read/edit scripts, and p
 git clone https://github.com/AlexRudshild/robloxstudio-mcp.git
 cd robloxstudio-mcp
 npm install
-npm run build
+npm run build:all
 ```
 
-This produces `packages/robloxstudio-mcp/dist/index.js` (and `packages/robloxstudio-mcp-inspector/dist/index.js`).
+This produces:
+- `packages/robloxstudio-mcp/dist/index.js` and `packages/robloxstudio-mcp-inspector/dist/index.js`
+- `studio-plugin/MCPPlugin.rbxmx` — the Studio plugin, **auto-copied** into your Roblox `Plugins` folder if it exists:
+  - Windows: `%LOCALAPPDATA%\Roblox\Plugins`
+  - macOS: `~/Documents/Roblox/Plugins`
 
-### 2. Install the Studio plugin
+### 2. Activate the Studio plugin
 
-Copy `studio-plugin/MCPPlugin.rbxmx` into your Roblox Studio `Plugins` folder.
-
-Studio menu: **Plugins → Plugins Folder** opens it directly. Restart Studio after copying.
+Restart Roblox Studio so it picks up the new `MCPPlugin.rbxmx`.
 
 Then enable **Allow HTTP Requests** in Game Settings → Security.
+
+If the auto-copy didn't run (folder didn't exist at build time), copy `studio-plugin/MCPPlugin.rbxmx` manually. **Plugins → Plugins Folder** in Studio opens the destination directly.
 
 ### 3. Connect your AI
 
@@ -81,10 +85,18 @@ On macOS/Linux use forward slashes:
 
 ### Updating
 
+One command — pulls, installs, rebuilds server + plugin, and reinstalls the plugin into your Roblox Plugins folder:
+
 ```bash
-git pull
-npm install
-npm run build
+npm run update
+```
+
+Restart Studio afterward so it picks up the new plugin build.
+
+If you only want to rebuild + reinstall the Studio plugin (no git pull):
+
+```bash
+npm run install:plugin
 ```
 
 ## What Can You Do?
