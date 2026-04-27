@@ -156,7 +156,7 @@ export class RobloxStudioMCPServer {
             return await this.tools.setScriptSource((args as any)?.instancePath as string, (args as any)?.source as string);
 
           case 'edit_script_lines':
-            return await this.tools.editScriptLines((args as any)?.instancePath as string, (args as any)?.old_string as string, (args as any)?.new_string as string);
+            return await this.tools.editScriptLines((args as any)?.instancePath as string, (args as any)?.old_string as string, (args as any)?.new_string as string, (args as any)?.validateAfter);
           case 'insert_script_lines':
             return await this.tools.insertScriptLines((args as any)?.instancePath as string, (args as any)?.afterLine as number, (args as any)?.newContent as string);
           case 'delete_script_lines':

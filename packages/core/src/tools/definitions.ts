@@ -612,7 +612,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: 'edit_script_lines',
     category: 'write',
-    description: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, hash, replacedAtLine, linesDelta, newLineCount} on success. On failure returns errorCode: edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines list), or empty_old_string. Identical old/new is a no-op (returns success: true, noOp: true). For project-wide replace use find_and_replace_in_scripts; for full file rewrite use set_script_source; for inserts use insert_script_lines.',
+    description: 'Replace exact text in a script (whitespace-sensitive, single replacement). Workflow: call get_script_source first to read current source verbatim, then copy old_string from that output (preserves tabs/CRLF). Returns {success, hash, replacedAtLine, linesDelta, newLineCount}. On failure: errorCode edit_no_match (with scriptLineCount, fuzzyMatchCount, scriptPreview, hint), edit_ambiguous (with matchLines), or empty_old_string. Identical old/new returns {success:true, noOp:true}. Pass validateAfter:true to clone+require ModuleScripts (or loadstring BaseScripts) post-edit and return validation:{ok, kind, error?}. For project-wide replace use find_and_replace_in_scripts; for full rewrite use set_script_source.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -627,6 +627,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         new_string: {
           type: 'string',
           description: 'Replacement text.'
+        },
+        validateAfter: {
+          type: 'boolean',
+          description: 'If true, after applying the edit clone+require the ModuleScript (or loadstring BaseScript) to catch syntax/require-chain errors. Adds validation:{ok, kind:"syntax"|"require"|"clone", error?, line?, returnType?} to response. WARNING: require runs the module init code as a side effect — connections, spawned threads etc. will execute on the clone.'
         }
       },
       required: ['instancePath', 'old_string', 'new_string']

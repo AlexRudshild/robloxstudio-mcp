@@ -416,10 +416,57 @@ function collapseWhitespace(s: string): string {
 	return s.gsub("[ \t]+", " ")[0].gsub("\n+", "\n")[0];
 }
 
+function validateScript(instance: LuaSourceContainer): Record<string, unknown> {
+	const isModule = instance.IsA("ModuleScript");
+	const source = readScriptSource(instance);
+
+	const [fn, compileError] = loadstring(source);
+	if (!fn) {
+		const errStr = tostring(compileError);
+		const [lineStr] = errStr.match(":(%d+):");
+		return {
+			ok: false,
+			kind: "syntax",
+			error: errStr,
+			line: lineStr !== undefined ? tonumber(lineStr) : undefined,
+		};
+	}
+
+	if (!isModule) {
+		return { ok: true, kind: "syntax" };
+	}
+
+	const parent = instance.Parent;
+	if (!parent) {
+		return { ok: true, kind: "syntax", note: "ModuleScript has no Parent; require validation skipped" };
+	}
+
+	const [cloneOk, cloneOrErr] = pcall(() => {
+		const clone = instance.Clone();
+		clone.Name = `${instance.Name}_MCPValidationClone`;
+		clone.Parent = parent;
+		return clone;
+	});
+	if (!cloneOk) {
+		return { ok: false, kind: "clone", error: tostring(cloneOrErr) };
+	}
+	const clone = cloneOrErr as ModuleScript;
+
+	const [reqOk, reqResult] = pcall(require, clone);
+	const cleanupOk = pcall(() => clone.Destroy());
+	if (!cleanupOk) warn("MCP: failed to cleanup validation clone");
+
+	if (!reqOk) {
+		return { ok: false, kind: "require", error: tostring(reqResult) };
+	}
+	return { ok: true, kind: "require", returnType: typeOf(reqResult) };
+}
+
 function editScriptLines(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	let oldString = requestData.old_string as string;
 	let newString = requestData.new_string as string;
+	const validateAfter = requestData.validateAfter as boolean | undefined;
 
 	if (!instancePath || oldString === undefined || newString === undefined) {
 		return { error: "Instance path, old_string, and new_string are required", errorCode: "missing_arg" };
@@ -507,13 +554,17 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		const [newSourceLines] = splitLines(newSource);
 		const hash = Hashing.fingerprint([newSource]);
 
-		return {
+		const resp: Record<string, unknown> = {
 			success: true,
 			hash,
 			replacedAtLine,
 			linesDelta,
 			newLineCount: newSourceLines.size(),
 		};
+		if (validateAfter === true) {
+			resp.validation = validateScript(instance as LuaSourceContainer);
+		}
+		return resp;
 	});
 
 	if (success) {
