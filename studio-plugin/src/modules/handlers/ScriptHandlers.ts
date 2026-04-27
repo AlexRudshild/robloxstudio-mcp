@@ -101,6 +101,185 @@ function getScriptSource(requestData: Record<string, unknown>) {
 	}
 }
 
+interface OutlineFunction {
+	name: string;
+	line: number;
+	endLine: number;
+	sig: string;
+	kind: string;
+}
+
+interface OutlineRequire {
+	name: string;
+	path: string;
+	line: number;
+}
+
+interface OutlineLocal {
+	name: string;
+	line: number;
+}
+
+function stripLineComment(line: string): string {
+	// Naive: cut at first `--`. Doesn't account for `--` inside strings.
+	// Acceptable for outline (false negatives only, not false positives).
+	const [pos] = string.find(line, "%-%-", 1, false);
+	if (pos !== undefined) return string.sub(line, 1, pos - 1);
+	return line;
+}
+
+function countMatches(line: string, pattern: string): number {
+	let n = 0;
+	for (const _ of string.gmatch(line, pattern)) {
+		n++;
+	}
+	return n;
+}
+
+function getScriptOutline(requestData: Record<string, unknown>) {
+	const instancePath = requestData.instancePath as string;
+	if (!instancePath) return { error: "Instance path is required" };
+
+	const instance = getInstanceByPath(instancePath);
+	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance.IsA("LuaSourceContainer")) {
+		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
+	}
+
+	const source = readScriptSource(instance);
+	const [lines] = splitLines(source);
+	const totalLines = lines.size();
+
+	const functions: OutlineFunction[] = [];
+	const requires: OutlineRequire[] = [];
+	const topLocals: OutlineLocal[] = [];
+	const fnStack: { entry: OutlineFunction; openDepth: number }[] = [];
+
+	let depth = 0;
+	let inBlockComment = false;
+
+	for (let i = 0; i < totalLines; i++) {
+		const lineNum = i + 1;
+		let raw = lines[i];
+
+		// Block comment handling: --[[ ... ]]
+		if (inBlockComment) {
+			const [closeAt] = string.find(raw, "%]%]", 1, false);
+			if (closeAt === undefined) continue;
+			raw = string.sub(raw, closeAt + 2);
+			inBlockComment = false;
+		}
+		const [bcOpen] = string.find(raw, "%-%-%[%[", 1, false);
+		if (bcOpen !== undefined) {
+			const before = string.sub(raw, 1, bcOpen - 1);
+			const after = string.sub(raw, bcOpen + 4);
+			const [bcClose] = string.find(after, "%]%]", 1, false);
+			if (bcClose === undefined) {
+				inBlockComment = true;
+				raw = before;
+			} else {
+				raw = before + string.sub(after, bcClose + 2);
+			}
+		}
+
+		const line = stripLineComment(raw);
+		if (string.match(line, "^%s*$")[0] !== undefined) continue;
+
+		// Function declaration: `function NAME(args)` or `local function NAME(args)`.
+		// `[%w_:%.]+` covers Foo, Foo.bar, Foo:bar.
+		// `%b()` matches the balanced paren group as the args signature.
+		const fnMatch = string.find(line, "function%s+([%w_:%.]+)%s*(%b())") as LuaTuple<
+			[number?, number?, string?, string?]
+		>;
+		if (fnMatch[0] !== undefined && fnMatch[2] !== undefined && fnMatch[3] !== undefined) {
+			const fnName = fnMatch[2];
+			const fnArgs = fnMatch[3];
+			const isLocal = string.match(line, "^%s*local%s+function")[0] !== undefined;
+			const kind = isLocal
+				? "local"
+				: string.find(fnName, ":", 1, true)[0] !== undefined
+					? "method"
+					: "global";
+			const entry: OutlineFunction = {
+				name: fnName,
+				line: lineNum,
+				endLine: lineNum,
+				sig: `${fnName}${fnArgs}`,
+				kind,
+			};
+			functions.push(entry);
+			fnStack.push({ entry, openDepth: depth });
+			depth++;
+			// Continue depth tracking on the rest of the line.
+		} else {
+			// Top-level locals (only when not inside a function/block).
+			if (depth === 0) {
+				const reqMatch = string.find(
+					line,
+					"^%s*local%s+([%w_]+)%s*=%s*require%s*%(%s*([^%)]*)%s*%)",
+				) as LuaTuple<[number?, number?, string?, string?]>;
+				if (reqMatch[0] !== undefined && reqMatch[2] !== undefined) {
+					requires.push({
+						name: reqMatch[2],
+						path: reqMatch[3] ?? "",
+						line: lineNum,
+					});
+				} else {
+					const locMatch = string.find(line, "^%s*local%s+([%w_]+)%s*=") as LuaTuple<
+						[number?, number?, string?]
+					>;
+					if (locMatch[0] !== undefined && locMatch[2] !== undefined) {
+						topLocals.push({ name: locMatch[2], line: lineNum });
+					}
+				}
+			}
+		}
+
+		// Track block depth changes from the rest of this line.
+		// Frontier patterns require Luau's `%f[%w_]` boundary support.
+		const opens =
+			countMatches(line, "%f[%w_]do%f[^%w_]") +
+			countMatches(line, "%f[%w_]then%f[^%w_]") +
+			countMatches(line, "%f[%w_]repeat%f[^%w_]");
+		const closes =
+			countMatches(line, "%f[%w_]end%f[^%w_]") + countMatches(line, "%f[%w_]until%f[^%w_]");
+
+		// `function` opening was already counted on the function-decl branch above.
+		// For inline `function` keywords (anonymous), each one opens a block too.
+		const inlineFns =
+			countMatches(line, "%f[%w_]function%f[^%w_]") - (fnMatch[0] !== undefined ? 1 : 0);
+		const totalOpens = opens + math.max(0, inlineFns);
+
+		depth += totalOpens - closes;
+		if (depth < 0) depth = 0;
+
+		// Close any function whose openDepth >= current depth.
+		while (fnStack.size() > 0) {
+			const top = fnStack[fnStack.size() - 1];
+			if (depth <= top.openDepth) {
+				top.entry.endLine = lineNum;
+				fnStack.pop();
+			} else {
+				break;
+			}
+		}
+	}
+
+	// Any function still open at EOF — close it at the last line.
+	for (const item of fnStack) {
+		item.entry.endLine = totalLines;
+	}
+
+	return {
+		instancePath,
+		className: instance.ClassName,
+		lineCount: totalLines,
+		functions,
+		requires,
+		topLocals: topLocals.size() > 30 ? [...topLocals].filter((_, i) => i < 30) : topLocals,
+	};
+}
+
 function setScriptSource(requestData: Record<string, unknown>) {
 	const instancePath = requestData.instancePath as string;
 	const newSource = requestData.source as string;
@@ -533,6 +712,7 @@ function getScriptAnalysis(requestData: Record<string, unknown>) {
 
 export = {
 	getScriptSource,
+	getScriptOutline,
 	setScriptSource,
 	editScriptLines,
 	insertScriptLines,

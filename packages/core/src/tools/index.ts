@@ -431,21 +431,31 @@ export class RobloxStudioTools {
     }
 
     const header = headerLines.join('\n');
-    let code: string;
-    if (typeof response.numberedSource === 'string') {
-      code = response.numberedSource;
-    } else {
-      const sourceText = (response.source as string) ?? '';
-      const offset = (response.startLine as number) ?? 1;
-      const sourceLines = sourceText.split('\n');
-      code = sourceLines.map((line, i) => `${i + offset}: ${line}`).join('\n');
-    }
+    const sourceText = (response.source as string) ?? '';
+    const offset = (response.startLine as number) ?? 1;
+    const code = sourceText
+      .split('\n')
+      .map((line, i) => `${i + offset}: ${line}`)
+      .join('\n');
 
     return {
       content: [{
         type: 'text',
         text: `${header}\n\n${code}`,
       }]
+    };
+  }
+
+  async getScriptOutline(instancePath: string) {
+    if (!instancePath) {
+      throw new Error('Instance path is required for get_script_outline');
+    }
+    const response = await this.client.request('/api/get-script-outline', { instancePath });
+    if (response.error) {
+      return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+    }
+    return {
+      content: [{ type: 'text', text: JSON.stringify(response) }],
     };
   }
 

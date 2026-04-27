@@ -56,6 +56,7 @@ const routeMap: Record<string, Handler> = {
 	"/api/move-object": InstanceHandlers.moveObject,
 
 	"/api/get-script-source": ScriptHandlers.getScriptSource,
+	"/api/get-script-outline": ScriptHandlers.getScriptOutline,
 	"/api/set-script-source": ScriptHandlers.setScriptSource,
 	"/api/edit-script-lines": ScriptHandlers.editScriptLines,
 	"/api/insert-script-lines": ScriptHandlers.insertScriptLines,

@@ -133,6 +133,8 @@ export class RobloxStudioMCPServer {
 
           case 'get_script_source':
             return await this.tools.getScriptSource((args as any)?.instancePath as string, (args as any)?.startLine, (args as any)?.endLine);
+          case 'get_script_outline':
+            return await this.tools.getScriptOutline((args as any)?.instancePath as string);
           case 'set_script_source':
             return await this.tools.setScriptSource((args as any)?.instancePath as string, (args as any)?.source as string);
 

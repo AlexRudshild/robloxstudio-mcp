@@ -95,6 +95,7 @@ local routeMap = {
 	["/api/clone-object"] = InstanceHandlers.cloneObject,
 	["/api/move-object"] = InstanceHandlers.moveObject,
 	["/api/get-script-source"] = ScriptHandlers.getScriptSource,
+	["/api/get-script-outline"] = ScriptHandlers.getScriptOutline,
 	["/api/set-script-source"] = ScriptHandlers.setScriptSource,
 	["/api/edit-script-lines"] = ScriptHandlers.editScriptLines,
 	["/api/insert-script-lines"] = ScriptHandlers.insertScriptLines,
@@ -4369,6 +4370,206 @@ local function getScriptSource(requestData)
 		}
 	end
 end
+local function stripLineComment(line)
+	-- Naive: cut at first `--`. Doesn't account for `--` inside strings.
+	-- Acceptable for outline (false negatives only, not false positives).
+	local pos = string.find(line, "%-%-", 1, false)
+	if pos ~= nil then
+		return string.sub(line, 1, pos - 1)
+	end
+	return line
+end
+local function countMatches(line, pattern)
+	local n = 0
+	local _iterFunc = string.gmatch(line, pattern)
+	while true do
+		local _ = { _iterFunc() }
+		if #_ == 0 then
+			break
+		end
+		n += 1
+	end
+	return n
+end
+local function getScriptOutline(requestData)
+	local instancePath = requestData.instancePath
+	if not (instancePath ~= "" and instancePath) then
+		return {
+			error = "Instance path is required",
+		}
+	end
+	local instance = getInstanceByPath(instancePath)
+	if not instance then
+		return {
+			error = `Instance not found: {instancePath}`,
+		}
+	end
+	if not instance:IsA("LuaSourceContainer") then
+		return {
+			error = `Instance is not a script-like object: {instance.ClassName}`,
+		}
+	end
+	local source = readScriptSource(instance)
+	local lines = splitLines(source)
+	local totalLines = #lines
+	local functions = {}
+	local requires = {}
+	local topLocals = {}
+	local fnStack = {}
+	local depth = 0
+	local inBlockComment = false
+	do
+		local i = 0
+		local _shouldIncrement = false
+		while true do
+			if _shouldIncrement then
+				i += 1
+			else
+				_shouldIncrement = true
+			end
+			if not (i < totalLines) then
+				break
+			end
+			local lineNum = i + 1
+			local raw = lines[i + 1]
+			-- Block comment handling: --[[ ... ]]
+			if inBlockComment then
+				local closeAt = string.find(raw, "%]%]", 1, false)
+				if closeAt == nil then
+					continue
+				end
+				raw = string.sub(raw, closeAt + 2)
+				inBlockComment = false
+			end
+			local bcOpen = string.find(raw, "%-%-%[%[", 1, false)
+			if bcOpen ~= nil then
+				local before = string.sub(raw, 1, bcOpen - 1)
+				local after = string.sub(raw, bcOpen + 4)
+				local bcClose = string.find(after, "%]%]", 1, false)
+				if bcClose == nil then
+					inBlockComment = true
+					raw = before
+				else
+					raw = before .. string.sub(after, bcClose + 2)
+				end
+			end
+			local line = stripLineComment(raw)
+			if (string.match(line, "^%s*$")) ~= nil then
+				continue
+			end
+			-- Function declaration: `function NAME(args)` or `local function NAME(args)`.
+			-- `[%w_:%.]+` covers Foo, Foo.bar, Foo:bar.
+			-- `%b()` matches the balanced paren group as the args signature.
+			local fnMatch = { string.find(line, "function%s+([%w_:%.]+)%s*(%b())") }
+			if fnMatch[1] ~= nil and fnMatch[3] ~= nil and fnMatch[4] ~= nil then
+				local fnName = fnMatch[3]
+				local fnArgs = fnMatch[4]
+				local isLocal = (string.match(line, "^%s*local%s+function")) ~= nil
+				local kind = if isLocal then "local" elseif (string.find(fnName, ":", 1, true)) ~= nil then "method" else "global"
+				local entry = {
+					name = fnName,
+					line = lineNum,
+					endLine = lineNum,
+					sig = `{fnName}{fnArgs}`,
+					kind = kind,
+				}
+				table.insert(functions, entry)
+				local _arg0 = {
+					entry = entry,
+					openDepth = depth,
+				}
+				table.insert(fnStack, _arg0)
+				depth += 1
+				-- Continue depth tracking on the rest of the line.
+			else
+				-- Top-level locals (only when not inside a function/block).
+				if depth == 0 then
+					local reqMatch = { string.find(line, "^%s*local%s+([%w_]+)%s*=%s*require%s*%(%s*([^%)]*)%s*%)") }
+					if reqMatch[1] ~= nil and reqMatch[3] ~= nil then
+						local _object = {
+							name = reqMatch[3],
+						}
+						local _left = "path"
+						local _condition = reqMatch[4]
+						if _condition == nil then
+							_condition = ""
+						end
+						_object[_left] = _condition
+						_object.line = lineNum
+						table.insert(requires, _object)
+					else
+						local locMatch = { string.find(line, "^%s*local%s+([%w_]+)%s*=") }
+						if locMatch[1] ~= nil and locMatch[3] ~= nil then
+							local _arg0 = {
+								name = locMatch[3],
+								line = lineNum,
+							}
+							table.insert(topLocals, _arg0)
+						end
+					end
+				end
+			end
+			-- Track block depth changes from the rest of this line.
+			-- Frontier patterns require Luau's `%f[%w_]` boundary support.
+			local opens = countMatches(line, "%f[%w_]do%f[^%w_]") + countMatches(line, "%f[%w_]then%f[^%w_]") + countMatches(line, "%f[%w_]repeat%f[^%w_]")
+			local closes = countMatches(line, "%f[%w_]end%f[^%w_]") + countMatches(line, "%f[%w_]until%f[^%w_]")
+			-- `function` opening was already counted on the function-decl branch above.
+			-- For inline `function` keywords (anonymous), each one opens a block too.
+			local inlineFns = countMatches(line, "%f[%w_]function%f[^%w_]") - (if fnMatch[1] ~= nil then 1 else 0)
+			local totalOpens = opens + math.max(0, inlineFns)
+			depth += totalOpens - closes
+			if depth < 0 then
+				depth = 0
+			end
+			-- Close any function whose openDepth >= current depth.
+			while #fnStack > 0 do
+				local top = fnStack[#fnStack]
+				if depth <= top.openDepth then
+					top.entry.endLine = lineNum
+					fnStack[#fnStack] = nil
+				else
+					break
+				end
+			end
+		end
+	end
+	-- Any function still open at EOF — close it at the last line.
+	for _, item in fnStack do
+		item.entry.endLine = totalLines
+	end
+	local _object = {
+		instancePath = instancePath,
+		className = instance.ClassName,
+		lineCount = totalLines,
+		functions = functions,
+		requires = requires,
+	}
+	local _left = "topLocals"
+	local _result
+	if #topLocals > 30 then
+		local _array = {}
+		local _length = #_array
+		table.move(topLocals, 1, #topLocals, _length + 1, _array)
+		-- ▼ ReadonlyArray.filter ▼
+		local _newValue = {}
+		local _callback = function(_, i)
+			return i < 30
+		end
+		local _length_1 = 0
+		for _k, _v in _array do
+			if _callback(_v, _k - 1, _array) == true then
+				_length_1 += 1
+				_newValue[_length_1] = _v
+			end
+		end
+		-- ▲ ReadonlyArray.filter ▲
+		_result = _newValue
+	else
+		_result = topLocals
+	end
+	_object[_left] = _result
+	return _object
+end
 local function setScriptSource(requestData)
 	local instancePath = requestData.instancePath
 	local newSource = requestData.source
@@ -4936,6 +5137,7 @@ local function getScriptAnalysis(requestData)
 end
 return {
 	getScriptSource = getScriptSource,
+	getScriptOutline = getScriptOutline,
 	setScriptSource = setScriptSource,
 	editScriptLines = editScriptLines,
 	insertScriptLines = insertScriptLines,

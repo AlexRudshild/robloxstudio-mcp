@@ -508,9 +508,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   // === Calculated/Relative Properties ===
   // === Script Read/Write ===
   {
+    name: 'get_script_outline',
+    category: 'read',
+    description: 'Get a compact symbol outline of a script: function names with signatures and line ranges, requires, and top-level locals. Read this first for a quick map; use get_script_source with startLine/endLine to drill into a specific function.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instancePath: {
+          type: 'string',
+          description: 'Script instance path'
+        }
+      },
+      required: ['instancePath']
+    }
+  },
+  {
     name: 'get_script_source',
     category: 'read',
-    description: 'Get script source with line numbers. Use startLine/endLine for large scripts.',
+    description: 'Get script source with line numbers. Use startLine/endLine for large scripts. For an overview, prefer get_script_outline.',
     inputSchema: {
       type: 'object',
       properties: {
