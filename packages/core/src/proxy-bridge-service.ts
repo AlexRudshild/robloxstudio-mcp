@@ -28,6 +28,15 @@ export class ProxyBridgeService extends BridgeService {
 
       if (!response.ok) {
         const body = await response.text();
+        let parsed: any;
+        try { parsed = JSON.parse(body); } catch { /* leave undefined */ }
+        if (parsed?.error) {
+          const err = new Error(parsed.error) as Error & { errorCode?: string; retryable?: boolean; availableTargets?: string[] };
+          if (parsed.errorCode) err.errorCode = parsed.errorCode;
+          if (parsed.retryable !== undefined) err.retryable = parsed.retryable;
+          if (parsed.availableTargets) err.availableTargets = parsed.availableTargets;
+          throw err;
+        }
         throw new Error(`Proxy request failed (${response.status}): ${body}`);
       }
 

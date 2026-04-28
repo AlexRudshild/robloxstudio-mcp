@@ -292,7 +292,11 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
       res.json({ response });
     } catch (err: any) {
       lastProxyAt = Date.now();
-      res.status(500).json({ error: err.message || 'Proxy request failed' });
+      const payload: Record<string, unknown> = { error: err?.message || 'Proxy request failed' };
+      if (err?.errorCode) payload.errorCode = err.errorCode;
+      if (err?.retryable !== undefined) payload.retryable = err.retryable;
+      if (err?.availableTargets) payload.availableTargets = err.availableTargets;
+      res.status(500).json(payload);
     }
   });
 

@@ -707,33 +707,36 @@ export class RobloxStudioTools {
       throw new Error('Code is required for execute_luau');
     }
     const resolvedTarget = target || 'edit';
-    const instances = this.bridge.getInstances();
-    const availableRoles = instances.map(i => i.role);
-    if (!availableRoles.includes(resolvedTarget)) {
-      const targetGuidance = availableRoles.includes('edit') && resolvedTarget !== 'edit'
-        ? 'For playtest targets (server, client-N), call start_playtest first.'
-        : 'Ensure the Studio plugin is running.';
-      const errorPayload = {
-        success: false,
-        errorCode: 'target_not_connected',
-        error: `Target "${resolvedTarget}" is not connected. Available targets: [${availableRoles.join(', ')}]. ${targetGuidance}`,
-        availableTargets: availableRoles,
-        retryable: false,
-        hint: 'If you only need to validate code (syntax/require check), use get_script_analysis instead — it works without a connected target. Enable scripting_plus feature first if not loaded.',
-      };
+    try {
+      const response = await this.client.request('/api/execute-luau', { code }, resolvedTarget);
       return {
-        content: [{ type: 'text', text: JSON.stringify(errorPayload) }],
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response)
+          }
+        ]
       };
+    } catch (err: any) {
+      if (err?.errorCode === 'target_not_connected') {
+        const availableTargets: string[] = err.availableTargets ?? [];
+        const targetGuidance = availableTargets.includes('edit') && resolvedTarget !== 'edit'
+          ? 'For playtest targets (server, client-N), call start_playtest first.'
+          : 'Ensure the Studio plugin is running.';
+        const errorPayload = {
+          success: false,
+          errorCode: 'target_not_connected',
+          error: `Target "${resolvedTarget}" is not connected. Available targets: [${availableTargets.join(', ')}]. ${targetGuidance}`,
+          availableTargets,
+          retryable: false,
+          hint: 'If you only need to validate code (syntax/require check), use get_script_analysis instead — it works without a connected target. Enable scripting_plus feature first if not loaded.',
+        };
+        return {
+          content: [{ type: 'text', text: JSON.stringify(errorPayload) }],
+        };
+      }
+      throw err;
     }
-    const response = await this.client.request('/api/execute-luau', { code }, resolvedTarget);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(response)
-        }
-      ]
-    };
   }
 
   async startPlaytest(mode: string, numPlayers?: number) {

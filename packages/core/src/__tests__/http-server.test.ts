@@ -141,6 +141,7 @@ describe('HTTP Server', () => {
   describe('Response Handling', () => {
     test('should handle successful response', async () => {
       const responseData = { result: 'success' };
+      bridge.registerInstance('test-1', 'edit');
 
       const requestPromise = bridge.sendRequest('/api/test', {});
       const pendingRequest = bridge.getPendingRequest();
@@ -161,6 +162,7 @@ describe('HTTP Server', () => {
 
     test('should handle error response', async () => {
       const error = 'Test error message';
+      bridge.registerInstance('test-1', 'edit');
 
       const requestPromise = bridge.sendRequest('/api/test', {});
       requestPromise.catch(() => {});

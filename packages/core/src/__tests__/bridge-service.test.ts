@@ -5,6 +5,7 @@ describe('BridgeService', () => {
 
   beforeEach(() => {
     bridgeService = new BridgeService();
+    bridgeService.registerInstance('test-edit', 'edit');
     jest.useFakeTimers();
   });
 

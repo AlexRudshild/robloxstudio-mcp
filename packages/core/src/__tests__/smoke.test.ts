@@ -26,9 +26,12 @@ describe('Smoke Tests - Connection Fixes', () => {
 
   test('clearAllPendingRequests should clear all requests', async () => {
     const bridge = new BridgeService();
+    bridge.registerInstance('test', 'edit');
 
     const promise1 = bridge.sendRequest('/test1', {});
     const promise2 = bridge.sendRequest('/test2', {});
+    promise1.catch(() => {});
+    promise2.catch(() => {});
 
     expect(bridge.getPendingRequest()).toBeTruthy();
 

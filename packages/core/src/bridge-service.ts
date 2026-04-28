@@ -82,6 +82,17 @@ export class BridgeService {
   }
 
   async sendRequest(endpoint: string, data: any, target = 'edit'): Promise<any> {
+    const availableRoles = Array.from(this.instances.values()).map(i => i.role);
+    if (!availableRoles.includes(target)) {
+      const err = new Error(
+        `Target "${target}" is not connected. Available targets: [${availableRoles.join(', ')}].`,
+      ) as Error & { errorCode?: string; retryable?: boolean; availableTargets?: string[] };
+      err.errorCode = 'target_not_connected';
+      err.retryable = false;
+      err.availableTargets = availableRoles;
+      throw err;
+    }
+
     const requestId = uuidv4();
 
     return new Promise((resolve, reject) => {
