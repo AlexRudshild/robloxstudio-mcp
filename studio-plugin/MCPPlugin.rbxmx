@@ -29,6 +29,11 @@ plugin.Unloading:Connect(function()
 end)
 UI.updateUIState()
 Communication.checkForUpdates()
+-- Auto-connect default tab on plugin load.
+-- Disconnect mid-session stays disconnected; next plugin reload reconnects.
+task.defer(function()
+	return Communication.activatePlugin(0)
+end)
 ]]></string>
     </Properties>
     <Item class="Folder" referent="1">

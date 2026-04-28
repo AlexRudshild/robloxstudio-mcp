@@ -33,3 +33,7 @@ plugin.Unloading.Connect(() => {
 
 UI.updateUIState();
 Communication.checkForUpdates();
+
+// Auto-connect default tab on plugin load.
+// Disconnect mid-session stays disconnected; next plugin reload reconnects.
+task.defer(() => Communication.activatePlugin(0));
