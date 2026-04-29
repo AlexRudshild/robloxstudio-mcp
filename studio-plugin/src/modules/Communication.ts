@@ -18,9 +18,14 @@ const instanceId = HttpService.GenerateGUID(false);
 let assignedRole: string | undefined;
 
 function detectRole(): string {
-	if (!RunService.IsRunMode()) return "edit";
-	if (RunService.IsServer()) return "server";
-	return "client";
+	// IsEdit() is true only in the edit DataModel.
+	// During Play/Run, plugins also load into the playtest DataModel(s) where
+	// IsEdit() is false and IsServer/IsClient identifies which side.
+	// IsRunMode() is true only during Run mode (not Play), so it's not a reliable
+	// "is this a playtest plugin?" check on its own.
+	if (RunService.IsEdit()) return "edit";
+	if (RunService.IsClient()) return "client";
+	return "server";
 }
 
 type Handler = (data: Record<string, unknown>) => unknown;

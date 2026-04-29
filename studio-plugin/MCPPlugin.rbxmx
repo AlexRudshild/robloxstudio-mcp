@@ -6,34 +6,41 @@
       <token name="RunContext">0</token>
       <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local TS = require(script.include.RuntimeLib)
+local RunService = TS.import(script, script, "node_modules", "@rbxts", "services").RunService
 local State = TS.import(script, script, "modules", "State")
 local UI = TS.import(script, script, "modules", "UI")
 local Communication = TS.import(script, script, "modules", "Communication")
-UI.init(plugin)
-local elements = UI.getElements()
-local toolbar = plugin:CreateToolbar("MCP Integration")
-local button = toolbar:CreateButton("MCP Server", "Connect to MCP Server for AI Integration", "rbxassetid://10734944444")
-elements.connectButton.Activated:Connect(function()
-	local conn = State.getActiveConnection()
-	if conn and conn.isActive then
-		Communication.deactivatePlugin(State.getActiveTabIndex())
-	else
-		Communication.activatePlugin(State.getActiveTabIndex())
-	end
-end)
-button.Click:Connect(function()
-	elements.screenGui.Enabled = not elements.screenGui.Enabled
-end)
-plugin.Unloading:Connect(function()
-	Communication.deactivateAll()
-end)
-UI.updateUIState()
-Communication.checkForUpdates()
--- Auto-connect default tab on plugin load.
--- Disconnect mid-session stays disconnected; next plugin reload reconnects.
-task.defer(function()
-	return Communication.activatePlugin(0)
-end)
+-- In Play mode, Roblox loads the plugin in playtest DataModel(s) too.
+-- Only the edit-DataModel plugin should own the MCP toolbar, DockWidget, and
+-- /ready registration. Otherwise we get a second floating window with a retry
+-- storm and duplicate role=edit registrations.
+if RunService:IsEdit() then
+	UI.init(plugin)
+	local elements = UI.getElements()
+	local toolbar = plugin:CreateToolbar("MCP Integration")
+	local button = toolbar:CreateButton("MCP Server", "Connect to MCP Server for AI Integration", "rbxassetid://10734944444")
+	elements.connectButton.Activated:Connect(function()
+		local conn = State.getActiveConnection()
+		if conn and conn.isActive then
+			Communication.deactivatePlugin(State.getActiveTabIndex())
+		else
+			Communication.activatePlugin(State.getActiveTabIndex())
+		end
+	end)
+	button.Click:Connect(function()
+		elements.screenGui.Enabled = not elements.screenGui.Enabled
+	end)
+	plugin.Unloading:Connect(function()
+		Communication.deactivateAll()
+	end)
+	UI.updateUIState()
+	Communication.checkForUpdates()
+	-- Auto-connect default tab on plugin load.
+	-- Disconnect mid-session stays disconnected; next plugin reload reconnects.
+	task.defer(function()
+		return Communication.activatePlugin(0)
+	end)
+end
 ]]></string>
     </Properties>
     <Item class="Folder" referent="1">
@@ -64,13 +71,18 @@ local InputHandlers = TS.import(script, script.Parent, "handlers", "InputHandler
 local instanceId = HttpService:GenerateGUID(false)
 local assignedRole
 local function detectRole()
-	if not RunService:IsRunMode() then
+	-- IsEdit() is true only in the edit DataModel.
+	-- During Play/Run, plugins also load into the playtest DataModel(s) where
+	-- IsEdit() is false and IsServer/IsClient identifies which side.
+	-- IsRunMode() is true only during Run mode (not Play), so it's not a reliable
+	-- "is this a playtest plugin?" check on its own.
+	if RunService:IsEdit() then
 		return "edit"
 	end
-	if RunService:IsServer() then
-		return "server"
+	if RunService:IsClient() then
+		return "client"
 	end
-	return "client"
+	return "server"
 end
 local routeMap = {
 	["/api/file-tree"] = QueryHandlers.getFileTree,

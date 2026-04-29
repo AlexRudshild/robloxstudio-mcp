@@ -33,6 +33,16 @@ export class BridgeService {
       this.nextClientIndex++;
     }
 
+    // Evict prior entries with the same role — singleton roles ("edit", "server")
+    // can only have one live plugin process. Plugin reload during playtest leaves
+    // a stale entry under the old instanceId; this kicks it. client-N roles are
+    // uniquely numbered above, so this loop is a no-op for them.
+    for (const [id, inst] of this.instances.entries()) {
+      if (id !== instanceId && inst.role === assignedRole) {
+        this.instances.delete(id);
+      }
+    }
+
     this.instances.set(instanceId, {
       instanceId,
       role: assignedRole,
