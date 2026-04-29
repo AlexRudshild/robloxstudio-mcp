@@ -442,7 +442,7 @@ export class RobloxStudioTools {
     const response = await this.client.request('/api/get-script-source', { instancePath, startLine, endLine, knownHash });
 
     if (response.error) {
-      return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+      return { content: [{ type: 'text', text: JSON.stringify(response) }] };
     }
 
     if (response.unchanged) {
@@ -480,7 +480,7 @@ export class RobloxStudioTools {
     }
     const response = await this.client.request('/api/get-script-outline', { instancePath, knownHash });
     if (response.error) {
-      return { content: [{ type: 'text', text: `Error: ${response.error}` }] };
+      return { content: [{ type: 'text', text: JSON.stringify(response) }] };
     }
     return {
       content: [{ type: 'text', text: JSON.stringify(response) }],
