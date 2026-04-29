@@ -700,7 +700,6 @@ function grepScripts(requestData: Record<string, unknown>) {
 
 	interface ScriptResult {
 		instancePath: string;
-		name: string;
 		className: string;
 		enabled?: boolean;
 		matches: LineMatch[];
@@ -781,7 +780,6 @@ function grepScripts(requestData: Record<string, unknown>) {
 			if (scriptMatchCount > 0) {
 				const scriptResult: ScriptResult = {
 					instancePath: getInstancePath(instance),
-					name: instance.Name,
 					className: instance.ClassName,
 					matches: scriptMatches,
 				};

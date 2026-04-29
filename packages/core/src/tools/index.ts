@@ -460,11 +460,18 @@ export class RobloxStudioTools {
     if (response.knownHash) headerParts.push(`knownHash: ${response.knownHash}`);
 
     const sourceText = (response.source as string) ?? '';
-    const offset = (response.startLine as number) ?? 1;
-    const code = sourceText
-      .split('\n')
-      .map((line, i) => `${i + offset}: ${line}`)
-      .join('\n');
+    let code: string;
+    if (response.isPartial) {
+      // Numbered prefixes only on partial reads — model needs line context.
+      // Full reads start from line 1; prefixes are derivable from newline count.
+      const offset = (response.startLine as number) ?? 1;
+      code = sourceText
+        .split('\n')
+        .map((line, i) => `${i + offset}: ${line}`)
+        .join('\n');
+    } else {
+      code = sourceText;
+    }
 
     return {
       content: [{

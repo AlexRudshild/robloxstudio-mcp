@@ -4571,7 +4571,6 @@ local function grepScripts(requestData)
 			if scriptMatchCount > 0 then
 				local scriptResult = {
 					instancePath = getInstancePath(instance),
-					name = instance.Name,
 					className = instance.ClassName,
 					matches = scriptMatches,
 				}
