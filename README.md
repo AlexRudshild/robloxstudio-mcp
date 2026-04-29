@@ -103,6 +103,30 @@ npm run install:plugin
 
 Ask things like: *"What's the structure of this game?"*, *"Find scripts with deprecated APIs"*, *"Create 50 test NPCs in a grid"*, *"Optimize this movement code"*
 
+## Recommended Agent Rules
+
+Drop this into your project's `AGENTS.md` (Codex) or `CLAUDE.md` (Claude Code). Validated on 4 real Codex sessions of the same UI bug-fix task: per-turn input dropped from ~140k to ~52k tokens, `knownHash` dedup adoption rose from 0% to 70%, sub-agent forks went from 4 to 0, and the task was solved correctly only after these rules were in place.
+
+```markdown
+## Token Discipline (HARD RULES)
+
+- Always call `get_script_source` with `startLine`/`endLine`. Run `get_script_outline` first, then read only the exact needed range. Full reads forbidden except for files under 100 lines.
+- Use `grep_scripts` instead of reading whole files for search.
+- After each `get_script_source` / `get_script_outline` / `edit_script_lines` response, capture the returned `knownHash` and pass it on the next call to the same script — server short-circuits to `{unchanged:true}` when nothing changed.
+- After `edit_script_lines`, narrow any re-read to the returned `affectedLines:[start,end]` range, not wider.
+- Group independent tool calls in parallel when there is no dependency between them.
+- Sub-agents only for genuinely independent work. Use a narrow brief (3–5 lines, concrete paths/functions, expected response format), not "study everything". Default to no full-context fork; justify if you need one.
+- Do not repeat just-read code in your reasoning or final answer.
+- Keep the final answer concise; do not restate what is visible in the diff.
+- Do not re-read project documentation files that were already read this session.
+```
+
+**Harness-specific syntax** (adapt the lines above):
+- **Codex CLI** — parallel calls via `multi_tool_use.parallel`; sub-agents via `spawn_agent` with `fork_context:false` by default.
+- **Claude Code** — emit multiple tool calls in one assistant message for parallel; sub-agents via the `Agent` tool.
+
+Why these rules live in your project file rather than the server: they contain harness-specific syntax and project-tunable thresholds (e.g. the file-size cutoff for full reads). Universal tool-mechanic hints — `knownHash` chaining, outline-first navigation, `affectedLines` after edits, error codes — already ship inside each tool's description; you do not need to re-state them.
+
 <details>
 <summary><strong>Inspector Edition (Read-Only)</strong></summary>
 
