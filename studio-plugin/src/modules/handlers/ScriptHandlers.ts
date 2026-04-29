@@ -27,7 +27,7 @@ function getScriptSource(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (!instance.IsA("LuaSourceContainer")) {
 		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
 	}
@@ -155,7 +155,7 @@ function getScriptOutline(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (!instance.IsA("LuaSourceContainer")) {
 		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
 	}
@@ -306,7 +306,7 @@ function setScriptSource(requestData: Record<string, unknown>) {
 	if (!instancePath || !newSource) return { error: "Instance path and source are required" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (!instance.IsA("LuaSourceContainer")) {
 		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
 	}
@@ -585,7 +585,7 @@ function insertScriptLines(requestData: Record<string, unknown>) {
 	newContent = normalizeEscapes(newContent);
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (!instance.IsA("LuaSourceContainer")) {
 		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
 	}
@@ -634,7 +634,7 @@ function deleteScriptLines(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (!instance.IsA("LuaSourceContainer")) {
 		return { error: `Instance is not a script-like object: ${instance.ClassName}` };
 	}
@@ -720,7 +720,7 @@ function findAndReplaceInScripts(requestData: Record<string, unknown>) {
 	}
 
 	const startInstance = searchPath !== "" ? getInstanceByPath(searchPath) : game;
-	if (!startInstance) return { error: `Path not found: ${searchPath}` };
+	if (!startInstance) return { error: "Path not found", errorCode: "path_not_found", path: searchPath, hint: "Use search() or get_project_structure to locate." };
 
 	interface ScriptChange {
 		instancePath: string;
@@ -815,7 +815,7 @@ function getScriptAnalysis(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}` };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const results: Record<string, unknown>[] = [];
 

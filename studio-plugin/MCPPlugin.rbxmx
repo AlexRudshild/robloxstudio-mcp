@@ -873,9 +873,10 @@ local function exportBuild(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("Model") and not instance:IsA("Folder") then
@@ -1846,9 +1847,10 @@ local function deleteObject(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if instance == game then
@@ -1955,9 +1957,10 @@ local function performSmartDuplicate(requestData, useRecording)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = if useRecording then beginRecording(`Smart duplicate {instance.Name}`) else nil
@@ -2158,9 +2161,10 @@ local function cloneObject(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local targetParent = getInstanceByPath(targetParentPath)
@@ -2204,9 +2208,10 @@ local function moveObject(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local targetParent = getInstanceByPath(targetParentPath)
@@ -2680,9 +2685,10 @@ local function getAttribute(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local success, result = pcall(function()
@@ -2715,9 +2721,10 @@ local function setAttribute(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording(`Set attribute {attributeName} on {instance.Name}`)
@@ -2751,9 +2758,10 @@ local function getAttributes(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local success, result = pcall(function()
@@ -2820,9 +2828,10 @@ local function deleteAttribute(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording(`Delete attribute {attributeName} from {instance.Name}`)
@@ -2856,9 +2865,10 @@ local function getTags(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local success, result = pcall(function()
@@ -2887,9 +2897,10 @@ local function addTag(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording(`Add tag {tagName} to {instance.Name}`)
@@ -2923,9 +2934,10 @@ local function removeTag(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording(`Remove tag {tagName} from {instance.Name}`)
@@ -3133,9 +3145,10 @@ local function bulkSetAttributes(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording(`Bulk set attributes on {instance.Name}`)
@@ -3218,9 +3231,10 @@ local function setProperty(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording(`Set {propertyName} property`)
@@ -3395,9 +3409,10 @@ local function setProperties(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local recordingId = beginRecording("Set multiple properties")
@@ -3905,9 +3920,10 @@ local function getInstanceProperties(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name or get_project_structure() to inspect.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local defaultInstance = if requestedMode == "delta" then getDefaultInstance(instance.ClassName) else nil
@@ -4069,9 +4085,10 @@ local function getInstanceChildren(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name or get_project_structure() to inspect.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local children = {}
@@ -4272,14 +4289,9 @@ local function getProjectStructure(requestData)
 			name = instance.Name,
 			className = instance.ClassName,
 			path = getInstancePath(instance),
-			children = {},
 		}
-		if instance:IsA("LuaSourceContainer") then
-			node.hasSource = true
-			node.scriptType = instance.ClassName
-			if instance:IsA("BaseScript") then
-				node.enabled = instance.Enabled
-			end
+		if instance:IsA("BaseScript") then
+			node.enabled = instance.Enabled
 		end
 		if instance:IsA("GuiObject") then
 			node.visible = instance.Visible
@@ -4312,8 +4324,12 @@ local function getProjectStructure(requestData)
 			-- ▲ ReadonlyArray.filter ▲
 			children = _newValue
 		end
-		local nodeChildren = node.children
 		local childCount = #children
+		if childCount == 0 then
+			return node
+		end
+		local nodeChildren = {}
+		node.children = nodeChildren
 		if childCount > 20 and depth < maxDepth then
 			local classGroups = {}
 			for _, child in children do
@@ -4447,7 +4463,10 @@ local function grepScripts(requestData)
 	local startInstance = if searchPath ~= "" then getInstanceByPath(searchPath) else game
 	if not startInstance then
 		return {
-			error = `Path not found: {searchPath}`,
+			error = "Path not found",
+			errorCode = "path_not_found",
+			instancePath = searchPath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	-- Prepare pattern for matching
@@ -4579,7 +4598,7 @@ local function grepScripts(requestData)
 	end
 	local resp = {
 		results = results,
-		totalMatches = if hitLimit then `>{maxResults}` else totalMatches,
+		totalMatches = totalMatches,
 		scriptsSearched = scriptsSearched,
 		scriptsMatched = matched,
 	}
@@ -4607,9 +4626,10 @@ local function getDescendants(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name or get_project_structure() to inspect.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local descendants = {}
@@ -4671,17 +4691,19 @@ local function compareInstances(requestData)
 	local instA = getInstanceByPath(instancePathA)
 	if not instA then
 		return {
-			error = `Instance not found: {instancePathA}`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePathA,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local instB = getInstanceByPath(instancePathB)
 	if not instB then
 		return {
-			error = `Instance not found: {instancePathB}`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePathB,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local commonProps = { "Name", "ClassName", "Size", "Position", "Rotation", "CFrame", "Anchored", "CanCollide", "Transparency", "Material", "Color", "Text", "TextColor3", "BackgroundColor3", "Image", "ImageColor3", "Visible", "Active", "ZIndex", "BorderSizePixel", "BackgroundTransparency", "ImageTransparency", "TextTransparency", "Value", "Enabled", "Brightness", "Range", "Shadows" }
@@ -4869,7 +4891,10 @@ local function getScriptSource(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = "Instance not found",
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
@@ -5025,7 +5050,10 @@ local function getScriptOutline(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = "Instance not found",
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
@@ -5213,7 +5241,10 @@ local function setScriptSource(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = "Instance not found",
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
@@ -5404,9 +5435,10 @@ local function editScriptLines(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}. Use search() to find by name.`,
+			error = "Instance not found",
 			errorCode = "instance_not_found",
 			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
@@ -5495,12 +5527,14 @@ local function editScriptLines(requestData)
 		local linesDelta = #newSplit - #oldSplit
 		local newSourceLines = splitLines(newSource)
 		local hash = Hashing.fingerprint({ "script-source", instancePath, newSource, -1, -1 })
+		local affectedEnd = replacedAtLine + math.max(0, #newSplit - 1)
 		local resp = {
 			success = true,
 			knownHash = hash,
 			replacedAtLine = replacedAtLine,
 			linesDelta = linesDelta,
 			newLineCount = #newSourceLines,
+			affectedLines = { replacedAtLine, affectedEnd },
 		}
 		if validateAfter == true then
 			resp.validation = validateScript(instance)
@@ -5535,7 +5569,10 @@ local function insertScriptLines(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = "Instance not found",
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
@@ -5619,7 +5656,10 @@ local function deleteScriptLines(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = "Instance not found",
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	if not instance:IsA("LuaSourceContainer") then
@@ -5768,7 +5808,10 @@ local function findAndReplaceInScripts(requestData)
 	local startInstance = if searchPath ~= "" then getInstanceByPath(searchPath) else game
 	if not startInstance then
 		return {
-			error = `Path not found: {searchPath}`,
+			error = "Path not found",
+			errorCode = "path_not_found",
+			path = searchPath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local changes = {}
@@ -5866,7 +5909,10 @@ local function getScriptAnalysis(requestData)
 	local instance = getInstanceByPath(instancePath)
 	if not instance then
 		return {
-			error = `Instance not found: {instancePath}`,
+			error = "Instance not found",
+			errorCode = "instance_not_found",
+			instancePath = instancePath,
+			hint = "Use search() or get_project_structure to locate.",
 		}
 	end
 	local results = {}

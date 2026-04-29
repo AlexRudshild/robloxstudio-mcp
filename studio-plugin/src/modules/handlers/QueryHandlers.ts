@@ -590,15 +590,10 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 			name: instance.Name,
 			className: instance.ClassName,
 			path: getInstancePath(instance),
-			children: [] as Record<string, unknown>[],
 		};
 
-		if (instance.IsA("LuaSourceContainer")) {
-			node.hasSource = true;
-			node.scriptType = instance.ClassName;
-			if (instance.IsA("BaseScript")) {
-				node.enabled = instance.Enabled;
-			}
+		if (instance.IsA("BaseScript")) {
+			node.enabled = instance.Enabled;
 		}
 
 		if (instance.IsA("GuiObject")) {
@@ -621,8 +616,12 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 			);
 		}
 
-		const nodeChildren = node.children as Record<string, unknown>[];
 		const childCount = children.size();
+		if (childCount === 0) return node;
+
+		const nodeChildren: Record<string, unknown>[] = [];
+		node.children = nodeChildren;
+
 		if (childCount > 20 && depth < maxDepth) {
 			const classGroups = new Map<string, Instance[]>();
 			for (const child of children) {
