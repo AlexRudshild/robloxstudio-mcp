@@ -61,7 +61,7 @@ function exportBuild(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	if (!instance.IsA("Model") && !instance.IsA("Folder")) {
 		return { error: "Instance must be a Model or Folder", errorCode: "invalid_class" };

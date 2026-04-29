@@ -323,7 +323,7 @@ function getInstanceProperties(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const defaultInstance = requestedMode === "delta" ? getDefaultInstance(instance.ClassName) : undefined;
 	const effectiveMode = defaultInstance !== undefined ? "delta" : "full";
@@ -456,7 +456,7 @@ function getInstanceChildren(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const children: { name: string; className: string; path: string; hasChildren: boolean; hasSource: boolean; enabled?: boolean }[] = [];
 	const hashParts: Array<string | number | boolean> = ["instance-children", instancePath];
@@ -686,7 +686,7 @@ function grepScripts(requestData: Record<string, unknown>) {
 	const classFilter = requestData.classFilter as string | undefined;
 
 	const startInstance = searchPath !== "" ? getInstanceByPath(searchPath) : game;
-	if (!startInstance) return { error: `Path not found: ${searchPath}` };
+	if (!startInstance) return { error: "Path not found", errorCode: "path_not_found", instancePath: searchPath, hint: "Use search() or get_project_structure to locate." };
 
 	// Prepare pattern for matching
 	const searchPattern = caseSensitive ? pattern : pattern.lower();
@@ -807,7 +807,7 @@ function grepScripts(requestData: Record<string, unknown>) {
 	}
 	const resp: Record<string, unknown> = {
 		results,
-		totalMatches: hitLimit ? `>${maxResults}` : totalMatches,
+		totalMatches,
 		scriptsSearched,
 		scriptsMatched: matched,
 	};
@@ -824,7 +824,7 @@ function getDescendants(requestData: Record<string, unknown>) {
 	const knownHash = requestData.knownHash as string | undefined;
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name or get_project_structure() to inspect.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const descendants: { name: string; className: string; path: string; depth: number }[] = [];
 
@@ -866,10 +866,10 @@ function compareInstances(requestData: Record<string, unknown>) {
 	}
 
 	const instA = getInstanceByPath(instancePathA);
-	if (!instA) return { error: `Instance not found: ${instancePathA}`, errorCode: "instance_not_found", instancePath: instancePathA };
+	if (!instA) return { error: "Instance not found", errorCode: "instance_not_found", instancePath: instancePathA, hint: "Use search() or get_project_structure to locate." };
 
 	const instB = getInstanceByPath(instancePathB);
-	if (!instB) return { error: `Instance not found: ${instancePathB}`, errorCode: "instance_not_found", instancePath: instancePathB };
+	if (!instB) return { error: "Instance not found", errorCode: "instance_not_found", instancePath: instancePathB, hint: "Use search() or get_project_structure to locate." };
 
 	const commonProps = [
 		"Name", "ClassName",

@@ -152,7 +152,7 @@ function getAttribute(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const [success, result] = pcall(() => {
 		const value = instance.GetAttribute(attributeName);
@@ -178,7 +178,7 @@ function setAttribute(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	const recordingId = beginRecording(`Set attribute ${attributeName} on ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -201,7 +201,7 @@ function getAttributes(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const [success, result] = pcall(() => {
 		const attributes = instance.GetAttributes();
@@ -249,7 +249,7 @@ function deleteAttribute(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	const recordingId = beginRecording(`Delete attribute ${attributeName} from ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -271,7 +271,7 @@ function getTags(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const [success, result] = pcall(() => {
 		const tags = CollectionService.GetTags(instance);
@@ -291,7 +291,7 @@ function addTag(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	const recordingId = beginRecording(`Add tag ${tagName} to ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -317,7 +317,7 @@ function removeTag(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	const recordingId = beginRecording(`Remove tag ${tagName} from ${instance.Name}`);
 
 	const [success, result] = pcall(() => {
@@ -472,7 +472,7 @@ function bulkSetAttributes(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const recordingId = beginRecording(`Bulk set attributes on ${instance.Name}`);
 

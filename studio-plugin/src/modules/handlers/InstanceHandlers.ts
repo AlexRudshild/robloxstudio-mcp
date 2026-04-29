@@ -128,7 +128,7 @@ function deleteObject(requestData: Record<string, unknown>) {
 	if (!instancePath) return { error: "Instance path is required", errorCode: "missing_arg", argName: "instancePath" };
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (instance === game) return { error: "Cannot delete the game instance", errorCode: "delete_protected" };
 	const recordingId = beginRecording(`Delete ${instance.ClassName} (${instance.Name})`);
 
@@ -201,7 +201,7 @@ function performSmartDuplicate(requestData: Record<string, unknown>, useRecordin
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	const recordingId = useRecording ? beginRecording(`Smart duplicate ${instance.Name}`) : undefined;
 
 	const results: Record<string, unknown>[] = [];
@@ -332,7 +332,7 @@ function cloneObject(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const targetParent = getInstanceByPath(targetParentPath);
 	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}`, errorCode: "parent_not_found", targetParentPath };
@@ -367,7 +367,7 @@ function moveObject(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const targetParent = getInstanceByPath(targetParentPath);
 	if (!targetParent) return { error: `Target parent not found: ${targetParentPath}`, errorCode: "parent_not_found", targetParentPath };

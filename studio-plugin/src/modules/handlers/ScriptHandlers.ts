@@ -478,7 +478,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	if (!instance.IsA("LuaSourceContainer")) {
 		return { error: `Instance is not a script: className=${instance.ClassName}`, errorCode: "not_a_script", instancePath, className: instance.ClassName };
 	}
@@ -551,6 +551,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 		const linesDelta = newSplit.size() - oldSplit.size();
 		const [newSourceLines] = splitLines(newSource);
 		const hash = Hashing.fingerprint(["script-source", instancePath, newSource, -1, -1]);
+		const affectedEnd = replacedAtLine + math.max(0, newSplit.size() - 1);
 
 		const resp: Record<string, unknown> = {
 			success: true,
@@ -558,6 +559,7 @@ function editScriptLines(requestData: Record<string, unknown>) {
 			replacedAtLine,
 			linesDelta,
 			newLineCount: newSourceLines.size(),
+			affectedLines: [replacedAtLine, affectedEnd],
 		};
 		if (validateAfter === true) {
 			resp.validation = validateScript(instance as LuaSourceContainer);

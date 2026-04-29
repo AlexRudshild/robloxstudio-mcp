@@ -14,7 +14,7 @@ function setProperty(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 	const recordingId = beginRecording(`Set ${propertyName} property`);
 
 	const inst = instance as unknown as Record<string, unknown>;
@@ -144,7 +144,7 @@ function setProperties(requestData: Record<string, unknown>) {
 	}
 
 	const instance = getInstanceByPath(instancePath);
-	if (!instance) return { error: `Instance not found: ${instancePath}. Use search() to find by name.`, errorCode: "instance_not_found", instancePath };
+	if (!instance) return { error: "Instance not found", errorCode: "instance_not_found", instancePath, hint: "Use search() or get_project_structure to locate." };
 
 	const recordingId = beginRecording("Set multiple properties");
 	const inst = instance as unknown as Record<string, unknown>;
