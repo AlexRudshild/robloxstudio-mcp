@@ -84,6 +84,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   get_asset_thumbnail: (tools, body) => tools.getAssetThumbnail(body.assetId, body.size),
   insert_asset: (tools, body) => tools.insertAsset(body.assetId, body.parentPath, body.position),
   preview_asset: (tools, body) => tools.previewAsset(body.assetId, body.includeProperties, body.maxDepth),
+  upload_decal: (tools, body) => tools.uploadDecal(body.filePath, body.displayName, body.description, body.userId, body.groupId),
   clone_object: (tools, body) => tools.cloneObject(body.instancePath, body.targetParentPath),
   move_object: (tools, body) => tools.moveObject(body.instancePath, body.targetParentPath),
   rename_object: (tools, body) => tools.renameObject(body.instancePath, body.newName),

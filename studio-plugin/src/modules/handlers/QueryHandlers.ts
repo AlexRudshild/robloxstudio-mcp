@@ -496,9 +496,9 @@ function getInstanceChildren(requestData: Record<string, unknown>) {
 
 	const hash = Hashing.fingerprint(hashParts);
 	if (knownHash !== undefined && knownHash === hash) {
-		return { unchanged: true, hash };
+		return { unchanged: true, knownHash: hash };
 	}
-	return { children, hash };
+	return { children, knownHash: hash };
 }
 
 function searchByProperty(requestData: Record<string, unknown>) {
