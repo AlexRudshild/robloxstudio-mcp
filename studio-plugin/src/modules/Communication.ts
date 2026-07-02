@@ -12,6 +12,7 @@ import BuildHandlers from "./handlers/BuildHandlers";
 import AssetHandlers from "./handlers/AssetHandlers";
 import CaptureHandlers from "./handlers/CaptureHandlers";
 import InputHandlers from "./handlers/InputHandlers";
+import LogHandlers from "./handlers/LogHandlers";
 import { Connection, RequestPayload, PollResponse, ReadyResponse } from "../types";
 
 const instanceId = HttpService.GenerateGUID(false);
@@ -45,6 +46,7 @@ const routeMap: Record<string, Handler> = {
 	"/api/get-descendants": QueryHandlers.getDescendants,
 	"/api/compare-instances": QueryHandlers.compareInstances,
 	"/api/get-output-log": QueryHandlers.getOutputLog,
+	"/api/get-runtime-logs": LogHandlers.getRuntimeLogs,
 
 	"/api/set-property": PropertyHandlers.setProperty,
 	"/api/set-properties": PropertyHandlers.setProperties,

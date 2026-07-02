@@ -4,6 +4,7 @@ import UI from "../modules/UI";
 import Communication from "../modules/Communication";
 import StopPlayMonitor from "../modules/StopPlayMonitor";
 import RenderMonitor from "../modules/RenderMonitor";
+import RuntimeLogBuffer from "../modules/RuntimeLogBuffer";
 
 StopPlayMonitor.init(plugin);
 
@@ -20,6 +21,9 @@ if (!RunService.IsEdit() && RunService.IsServer()) {
 // /ready registration. Otherwise we get a second floating window with a retry
 // storm and duplicate role=edit registrations.
 if (RunService.IsEdit()) {
+	// Capture LogService output from plugin load onward (edit + in-place Run)
+	// for get_runtime_logs. Install first so early boot logs are seen.
+	RuntimeLogBuffer.install();
 	RenderMonitor.start();
 	// Stamp the anon place id now (edit DM) so any later play-DM clone shares the
 	// same StopPlayMonitor mailbox key for unpublished places.

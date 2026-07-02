@@ -12,6 +12,7 @@ local UI = TS.import(script, script, "modules", "UI")
 local Communication = TS.import(script, script, "modules", "Communication")
 local StopPlayMonitor = TS.import(script, script, "modules", "StopPlayMonitor")
 local RenderMonitor = TS.import(script, script, "modules", "RenderMonitor")
+local RuntimeLogBuffer = TS.import(script, script, "modules", "RuntimeLogBuffer")
 StopPlayMonitor.init(plugin)
 -- Play-server DM: run ONLY the stop-signal monitor (1Hz settings poll).
 -- Cross-DM MessageOut reflection from edit → play-server does not work, and
@@ -25,6 +26,9 @@ end
 -- /ready registration. Otherwise we get a second floating window with a retry
 -- storm and duplicate role=edit registrations.
 if RunService:IsEdit() then
+	-- Capture LogService output from plugin load onward (edit + in-place Run)
+	-- for get_runtime_logs. Install first so early boot logs are seen.
+	RuntimeLogBuffer.install()
 	RenderMonitor.start()
 	-- Stamp the anon place id now (edit DM) so any later play-DM clone shares the
 	-- same StopPlayMonitor mailbox key for unpublished places.
@@ -82,6 +86,7 @@ local BuildHandlers = TS.import(script, script.Parent, "handlers", "BuildHandler
 local AssetHandlers = TS.import(script, script.Parent, "handlers", "AssetHandlers")
 local CaptureHandlers = TS.import(script, script.Parent, "handlers", "CaptureHandlers")
 local InputHandlers = TS.import(script, script.Parent, "handlers", "InputHandlers")
+local LogHandlers = TS.import(script, script.Parent, "handlers", "LogHandlers")
 local instanceId = HttpService:GenerateGUID(false)
 local assignedRole
 local function detectRole()
@@ -112,6 +117,7 @@ local routeMap = {
 	["/api/get-descendants"] = QueryHandlers.getDescendants,
 	["/api/compare-instances"] = QueryHandlers.compareInstances,
 	["/api/get-output-log"] = QueryHandlers.getOutputLog,
+	["/api/get-runtime-logs"] = LogHandlers.getRuntimeLogs,
 	["/api/set-property"] = PropertyHandlers.setProperty,
 	["/api/set-properties"] = PropertyHandlers.setProperties,
 	["/api/mass-set-property"] = PropertyHandlers.massSetProperty,
@@ -2440,6 +2446,31 @@ return {
         </Item>
         <Item class="ModuleScript" referent="9">
           <Properties>
+            <string name="Name">LogHandlers</string>
+            <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
+local RuntimeLogBuffer = TS.import(script, script.Parent.Parent, "RuntimeLogBuffer")
+local function getRuntimeLogs(requestData)
+	local since = requestData.since
+	local tail = requestData.tail
+	local filter = requestData.filter
+	-- capturedBy is the DM whose plugin buffer observed the log ("edit", or
+	-- "server" during in-place Run), not necessarily the script-origin peer.
+	local capturedBy = RuntimeLogBuffer.detectPeer()
+	return RuntimeLogBuffer.query({
+		since = since,
+		tail = tail,
+		filter = filter,
+	}, capturedBy)
+end
+return {
+	getRuntimeLogs = getRuntimeLogs,
+}
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="10">
+          <Properties>
             <string name="Name">MetadataHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
@@ -3291,7 +3322,7 @@ return {
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="10">
+        <Item class="ModuleScript" referent="11">
           <Properties>
             <string name="Name">PropertyHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -3560,7 +3591,7 @@ return {
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="11">
+        <Item class="ModuleScript" referent="12">
           <Properties>
             <string name="Name">QueryHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -5082,7 +5113,7 @@ return {
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="12">
+        <Item class="ModuleScript" referent="13">
           <Properties>
             <string name="Name">ScriptHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6214,7 +6245,7 @@ return {
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="13">
+        <Item class="ModuleScript" referent="14">
           <Properties>
             <string name="Name">TestHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6653,7 +6684,7 @@ return {
           </Properties>
         </Item>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">Hashing</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6706,7 +6737,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">Recording</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6736,7 +6767,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">RenderMonitor</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6797,7 +6828,223 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
+        <Properties>
+          <string name="Name">RuntimeLogBuffer</string>
+          <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.include.RuntimeLib)
+-- In-memory ring buffer for LogService.MessageOut, powering get_runtime_logs.
+--
+-- Installed once in the edit DM at plugin load; captured entries live in plugin
+-- module-state (nothing parented to the DataModel). During in-place Run mode
+-- the edit DM IS the running server, so this keeps capturing runtime output;
+-- during Play mode (a separate DataModel) only whatever LogService reflects
+-- into the edit DM is seen — this edit-only buffer does not register a peer in
+-- the play DMs, so separate play-server/client logs are not guaranteed.
+--
+-- The buffer is bounded by a byte budget; oldest entries drop when over budget.
+-- query() supports since-cursor incremental polling, a tail cap, and a plain
+-- substring filter.
+local _services = TS.import(script, script.Parent.Parent, "node_modules", "@rbxts", "services")
+local LogService = _services.LogService
+local RunService = _services.RunService
+local MAX_BYTES = 64 * 1024
+local HARD_ENTRY_CAP = 50_000
+local entries = {}
+local totalBytes = 0
+local totalDropped = 0
+local nextSeq = 1
+local installed = false
+local function levelTag(t)
+	if t == Enum.MessageType.MessageWarning then
+		return "WARN"
+	end
+	if t == Enum.MessageType.MessageError then
+		return "ERR"
+	end
+	if t == Enum.MessageType.MessageInfo then
+		return "INFO"
+	end
+	return "OUT"
+end
+local function nowSec()
+	return DateTime.now().UnixTimestampMillis / 1000
+end
+local function dropOldestUntilFits(incomingBytes)
+	while #entries > 0 and (totalBytes + incomingBytes > MAX_BYTES or #entries >= HARD_ENTRY_CAP) do
+		local dropped = table.remove(entries, 1)
+		totalBytes -= #dropped.message
+		totalDropped += 1
+	end
+end
+local function pushEntry(msg, t, ts)
+	if ts == nil then
+		ts = nowSec()
+	end
+	local bytes = #msg
+	dropOldestUntilFits(bytes)
+	local _arg0 = {
+		seq = nextSeq,
+		ts = ts,
+		level = levelTag(t),
+		message = msg,
+	}
+	table.insert(entries, _arg0)
+	nextSeq += 1
+	totalBytes += bytes
+end
+local function seedRuntimeHistory()
+	if not RunService:IsRunning() then
+		return nil
+	end
+	local ok, history = pcall(function()
+		return LogService:GetLogHistory()
+	end)
+	if not ok then
+		return nil
+	end
+	for _, entry in history do
+		local _message = entry.message
+		if not (type(_message) == "string") then
+			continue
+		end
+		local _exp = entry.message
+		local _exp_1 = entry.messageType
+		local _timestamp = entry.timestamp
+		pushEntry(_exp, _exp_1, if type(_timestamp) == "number" then entry.timestamp else nil)
+	end
+end
+local function install()
+	if installed then
+		return nil
+	end
+	if not RunService:IsStudio() then
+		return nil
+	end
+	installed = true
+	-- Seed from GetLogHistory only when already running, so a fresh edit-DM
+	-- install doesn't pull stale logs from a prior session.
+	seedRuntimeHistory()
+	LogService.MessageOut:Connect(function(msg, t)
+		pushEntry(msg, t)
+	end)
+end
+local function detectPeer()
+	if not RunService:IsRunning() then
+		return "edit"
+	end
+	if RunService:IsServer() then
+		return "server"
+	end
+	return "client"
+end
+local function query(opts, capturedBy)
+	local _result
+	if opts.since ~= nil then
+		-- ▼ ReadonlyArray.filter ▼
+		local _newValue = {}
+		local _callback = function(e)
+			return e.seq > (opts.since)
+		end
+		local _length = 0
+		for _k, _v in entries do
+			if _callback(_v, _k - 1, entries) == true then
+				_length += 1
+				_newValue[_length] = _v
+			end
+		end
+		-- ▲ ReadonlyArray.filter ▲
+		_result = _newValue
+	else
+		local _array = {}
+		local _length = #_array
+		table.move(entries, 1, #entries, _length + 1, _array)
+		_result = _array
+	end
+	local result = _result
+	if opts.filter ~= nil then
+		-- Plain substring search (4th arg = true): Lua magic chars in messages
+		-- would otherwise silently not match (e.g. "MARK-EDIT" vs "MARK-EDIT-001"
+		-- where '-' means "0+" in a Lua pattern).
+		local needle = opts.filter
+		-- ▼ ReadonlyArray.filter ▼
+		local _newValue = {}
+		local _callback = function(e)
+			local start = string.find(e.message, needle, 1, true)
+			return start ~= nil
+		end
+		local _length = 0
+		for _k, _v in result do
+			if _callback(_v, _k - 1, result) == true then
+				_length += 1
+				_newValue[_length] = _v
+			end
+		end
+		-- ▲ ReadonlyArray.filter ▲
+		result = _newValue
+	end
+	-- tail keeps the newest N. When combined with since, that means entries
+	-- between `since` and the tail window are dropped from THIS response and,
+	-- because nextSince advances to the buffer tail, they are never returned by
+	-- a later incremental poll. Report the count so the drop isn't silent —
+	-- callers who need every entry should poll with `since` and no `tail`.
+	local tailOmitted = 0
+	if opts.tail ~= nil and #result > opts.tail then
+		tailOmitted = #result - opts.tail
+		-- roblox-ts arrays don't expose .slice; manual tail copy.
+		local tailed = {}
+		local start = #result - opts.tail
+		do
+			local i = start
+			local _shouldIncrement = false
+			while true do
+				if _shouldIncrement then
+					i += 1
+				else
+					_shouldIncrement = true
+				end
+				if not (i < #result) then
+					break
+				end
+				local _arg0 = result[i + 1]
+				table.insert(tailed, _arg0)
+			end
+		end
+		result = tailed
+	end
+	local last = if #entries > 0 then entries[#entries] else nil
+	local _object = {
+		capturedBy = capturedBy,
+		entries = result,
+		totalDropped = totalDropped,
+	}
+	local _left = "nextSince"
+	local _result_1
+	if last then
+		_result_1 = last.seq
+	else
+		local _condition = opts.since
+		if _condition == nil then
+			_condition = 0
+		end
+		_result_1 = _condition
+	end
+	_object[_left] = _result_1
+	local out = _object
+	if tailOmitted > 0 then
+		out.tailOmitted = tailOmitted
+	end
+	return out
+end
+return {
+	install = install,
+	detectPeer = detectPeer,
+	query = query,
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6893,7 +7140,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">StopPlayMonitor</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -7201,7 +7448,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">UI</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -7921,7 +8168,7 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">Utils</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -8922,11 +9169,11 @@ return {
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="24">
+    <Item class="Folder" referent="26">
       <Properties>
         <string name="Name">include</string>
       </Properties>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="23">
         <Properties>
           <string name="Name">Promise</string>
           <string name="Source"><![CDATA[--[[
@@ -11000,7 +11247,7 @@ return Promise
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="22">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">RuntimeLib</string>
           <string name="Source"><![CDATA[local Promise = require(script.Parent.Promise)
@@ -11267,15 +11514,15 @@ return TS
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="25">
+    <Item class="Folder" referent="27">
       <Properties>
         <string name="Name">node_modules</string>
       </Properties>
-      <Item class="Folder" referent="26">
+      <Item class="Folder" referent="28">
         <Properties>
           <string name="Name">@rbxts</string>
         </Properties>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="25">
         <Properties>
           <string name="Name">services</string>
           <string name="Source"><![CDATA[return setmetatable({}, {

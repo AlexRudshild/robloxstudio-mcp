@@ -90,6 +90,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   get_descendants: (tools, body) => tools.getDescendants(body.instancePath, body.maxDepth, body.classFilter, body.knownHash),
   compare_instances: (tools, body) => tools.compareInstances(body.instancePathA, body.instancePathB),
   get_output_log: (tools, body) => tools.getOutputLog(body.maxEntries, body.messageType, body.knownHash),
+  get_runtime_logs: (tools, body) => tools.getRuntimeLogs(body.since, body.tail, body.filter),
   get_script_analysis: (tools, body) => tools.getScriptAnalysis(body.instancePath),
   bulk_set_attributes: (tools, body) => tools.bulkSetAttributes(body.instancePath, body.attributes),
   capture_screenshot: (tools) => tools.captureScreenshot(),

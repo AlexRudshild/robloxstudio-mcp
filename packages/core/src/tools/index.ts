@@ -1754,6 +1754,15 @@ export class RobloxStudioTools {
     return { content: [{ type: 'text', text: JSON.stringify(response) }] };
   }
 
+  async getRuntimeLogs(since?: number, tail?: number, filter?: string) {
+    const data: Record<string, unknown> = {};
+    if (since !== undefined) data.since = since;
+    if (tail !== undefined) data.tail = tail;
+    if (filter !== undefined) data.filter = filter;
+    const response = await this.client.request('/api/get-runtime-logs', data);
+    return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+  }
+
   async getScriptAnalysis(instancePath: string) {
     if (!instancePath) {
       throw new Error('instancePath is required for get_script_analysis');

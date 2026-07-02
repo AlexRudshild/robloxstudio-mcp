@@ -243,6 +243,8 @@ export class RobloxStudioMCPServer {
             return await this.tools.compareInstances((args as any)?.instancePathA as string, (args as any)?.instancePathB as string);
           case 'get_output_log':
             return await this.tools.getOutputLog((args as any)?.maxEntries, (args as any)?.messageType, (args as any)?.knownHash);
+          case 'get_runtime_logs':
+            return await this.tools.getRuntimeLogs((args as any)?.since, (args as any)?.tail, (args as any)?.filter);
           case 'get_script_analysis':
             return await this.tools.getScriptAnalysis((args as any)?.instancePath as string);
           case 'bulk_set_attributes':

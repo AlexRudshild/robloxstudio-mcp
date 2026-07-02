@@ -1742,6 +1742,29 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     }
   },
   {
+    name: 'get_runtime_logs',
+    feature: 'inspection_plus',
+    category: 'read',
+    description: 'Read the plugin\'s rolling LogService buffer (~64KB, oldest drop). Best for polling runtime output during a task: pass the prior response\'s nextSince back as since to get ONLY new entries (token-lean incremental polling), vs get_output_log which re-returns the whole tail. Captures the edit DM (and the server during in-place Run mode); it does NOT capture separate Play-mode server/client DataModels — capturedBy tells you which DM was observed. For lossless incremental polling use since WITHOUT tail. Response: {capturedBy, entries:[{seq,ts,level,message}], totalDropped, nextSince, tailOmitted?}.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: {
+          type: 'number',
+          description: 'Return only entries with seq > since. Pass back the prior response\'s nextSince for incremental polling.'
+        },
+        tail: {
+          type: 'number',
+          description: 'Cap to the last N matched entries (applied after since/filter). If it drops older matched entries they are NOT recoverable by a later poll (nextSince still advances past them); the response reports tailOmitted. Omit tail for lossless since-polling.'
+        },
+        filter: {
+          type: 'string',
+          description: 'Plain substring matched against each message (literal text, no pattern semantics). Applied after since, before tail.'
+        }
+      }
+    }
+  },
+  {
     name: 'get_script_analysis',
     feature: 'scripting_plus',
     category: 'read',
