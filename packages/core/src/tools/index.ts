@@ -1178,6 +1178,7 @@ export class RobloxStudioTools {
     const libraryPath = RobloxStudioTools.findLibraryPath();
     const styles = style ? [style] : ['medieval', 'modern', 'nature', 'scifi', 'misc'];
     const builds: Array<{ id: string; style: string; bounds: number[]; partCount: number }> = [];
+    let skippedInvalidFiles = 0;
 
     for (const s of styles) {
       const dirPath = path.join(libraryPath, s);
@@ -1194,8 +1195,9 @@ export class RobloxStudioTools {
             bounds: data.bounds || [0, 0, 0],
             partCount: Array.isArray(data.parts) ? data.parts.length : 0
           });
-        } catch {
-          // Skip invalid JSON files
+        } catch (err) {
+          skippedInvalidFiles++;
+          console.error(`Warning: skipping invalid library file ${s}/${file}: ${(err as Error).message}`);
         }
       }
     }
@@ -1204,7 +1206,7 @@ export class RobloxStudioTools {
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ builds, total: builds.length })
+          text: JSON.stringify({ builds, total: builds.length, ...(skippedInvalidFiles ? { skippedInvalidFiles } : {}) })
         }
       ]
     };
@@ -1557,6 +1559,7 @@ export class RobloxStudioTools {
         displayName,
         description || ''
       );
+      const imageId = result.backingAssetId ? String(result.backingAssetId) : null;
       return {
         content: [{
           type: 'text',
@@ -1566,7 +1569,9 @@ export class RobloxStudioTools {
               assetId: String(result.assetId),
               displayName,
               assetType: 'Decal',
-              backingAssetId: String(result.backingAssetId),
+              decalId: String(result.assetId),
+              imageId,
+              ...(imageId === null ? { imageIdNote: 'Roblox did not return a backing image ID; resolve manually via InsertService:LoadAsset(decalId) and read Decal.Texture.' } : {}),
             },
           })
         }]
@@ -1606,12 +1611,53 @@ export class RobloxStudioTools {
       fileName
     );
 
+    // Open Cloud returns the Decal WRAPPER asset ID; ImageLabel.Image and
+    // Decal.Texture need the underlying image content ID. Keep decalId/imageId
+    // inside `response` so the shape matches the cookie path above.
+    const decalId = result.response?.assetId;
+    const imageId = decalId ? await this.resolveImageId(String(decalId)) : null;
+    const enriched: Record<string, unknown> = {
+      ...result,
+      response: {
+        ...(result.response ?? {}),
+        decalId: decalId ?? null,
+        imageId,
+        ...(imageId === null ? { imageIdNote: 'Could not resolve the underlying image ID (plugin not connected?). Resolve manually via InsertService:LoadAsset(decalId) and read Decal.Texture.' } : {}),
+      },
+    };
     return {
       content: [{
         type: 'text',
-        text: JSON.stringify(result)
+        text: JSON.stringify(enriched)
       }]
     };
+  }
+
+  // Decal asset IDs are the wrapper asset; ImageLabel.Image needs the underlying
+  // image content ID. The only reliable cross-auth way to resolve it is
+  // InsertService:LoadAsset via the connected Studio plugin — the unauthenticated
+  // economy endpoint silently 401s.
+  private async resolveImageId(decalAssetId: string): Promise<string | null> {
+    if (!/^\d+$/.test(decalAssetId)) return null;
+    const code = `
+      local InsertService = game:GetService("InsertService")
+      local ok, result = pcall(function() return InsertService:LoadAsset(${decalAssetId}) end)
+      if not ok then return nil end
+      local decal = result:FindFirstChildWhichIsA("Decal", true)
+      local id = decal and decal.Texture:match("(%d+)") or nil
+      result:Destroy()
+      return id
+    `;
+    try {
+      const response = await this.client.request('/api/execute-luau', { code }, 'edit') as { returnValue?: unknown };
+      const returnValue = response?.returnValue;
+      if (returnValue !== undefined && returnValue !== null && /^\d+$/.test(String(returnValue))) {
+        return String(returnValue);
+      }
+    } catch (err) {
+      console.error(`Warning: decal image-ID resolution failed: ${(err as Error).message}`);
+    }
+    return null;
   }
 
   async simulateMouseInput(action: string, x: number, y: number, button?: string, scrollDirection?: string, target?: string) {

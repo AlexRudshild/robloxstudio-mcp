@@ -174,7 +174,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: 'Get built-in Roblox properties. mode="delta" (default, non-defaults only) or "full". Vector3/Color3/UDim2/CFrame returned as typed objects. Custom user data: use get_attributes/get_tags (metadata feature). Supports knownHash.',
     descriptionLong: `Get instance built-in Roblox properties (Position, Size, Color, RunContext for scripts, etc.).
 MODE: "delta" (default) returns only non-default values + omittedDefaultCount; "full" returns every readable property. Properties whose read pcall fails are silently skipped in both modes (no nil entries — absence means unreadable or default).
-PATH: dot notation only (game.Workspace.MyPart). Names containing dots are not addressable. Parent serializes as path string ("nil" if orphaned).
+PATH: dot notation (game.Workspace.MyPart). Names with dots/spaces/quotes/leading-digits are bracket-quoted (game.Workspace["My Part"]); renamed services use their ClassName as the root. Paths returned by tools round-trip back as input. Parent serializes as path string ("nil" if orphaned).
 COMPLEX TYPES: returned as objects with _type tag — Vector3 {X,Y,Z,_type:"Vector3"}, Color3 {R,G,B,_type:"Color3"} (0-1 range), UDim2 {X:{Scale,Offset},Y:{Scale,Offset},_type:"UDim2"}, CFrame {Position:{X,Y,Z},Rotation:[r00..r22],_type:"CFrame"}, EnumItem {Name,EnumType,Value,_type:"EnumItem"}, Instance {Path,_type:"Instance"}, NumberRange/Rect similar. BrickColor not in default output (auto-derives from Color3, legacy) — to set it explicitly pass a name string ("Bright red") via set_property.
 HASH: pass knownHash from prior call to dedup unchanged data — server returns {unchanged:true,knownHash}. After any write (set_property, edit_script_lines, etc.) the new hash differs naturally; the response of those write tools includes the new knownHash to chain forward.
 NOT for custom user data — use get_attributes / get_tags (metadata feature).`,
@@ -255,7 +255,7 @@ NOT for custom user data — use get_attributes / get_tags (metadata feature).`,
     category: 'write',
     description: 'Set ONE built-in property on ONE instance. Many props on one inst: set_properties. One prop on many: mass_set_property (mutation_plus). Custom data: set_attribute (metadata). Call get_tool_help for value formats.',
     descriptionLong: `Set ONE built-in Roblox property on ONE instance. For many props on one instance use set_properties; for one prop on many instances use mass_set_property (mutation_plus); for custom user data use set_attribute (metadata).
-PATH: dot notation only (no bracket-escape).
+PATH: dot notation; names with dots/spaces/quotes are bracket-quoted (game.Workspace["My Part"]). Paths returned by read tools round-trip back as input.
 INPUT VALUE FORMATS (auto-coerced to Roblox types):
   Vector3 — array [x,y,z] (for Position/Size/Orientation/Velocity/AngularVelocity, or any property whose current value is Vector3) OR object {X,Y,Z}
   Vector2 — array [x,y] (auto-detected by current type)
@@ -925,15 +925,15 @@ For nested hierarchies prefer create_ui_tree (single tree, deeper nesting). For 
       properties: {
         pattern: {
           type: 'string',
-          description: 'Search pattern (literal string or Lua pattern)'
+          description: 'Search text. Literal by default; with usePattern=true it is a case-sensitive Lua pattern with top-level "|" alternation (e.g. "foo|bar").'
         },
         caseSensitive: {
           type: 'boolean',
-          description: 'Case-sensitive search (default: false)'
+          description: 'Literal search case sensitivity (default: false). Lua pattern mode is always case-sensitive; passing false with usePattern=true is rejected.'
         },
         usePattern: {
           type: 'boolean',
-          description: 'Use Lua pattern matching instead of literal (default: false)'
+          description: 'Use Lua pattern matching instead of literal (default: false). Lua patterns are NOT PCRE: use %d/%a/%w classes and ".-" (not ".*?"); magic chars are ^ $ ( ) . % + - * ? [ ]. Top-level "|" alternation is supported.'
         },
         contextLines: {
           type: 'number',
@@ -1465,7 +1465,7 @@ Custom materials: search_materials → use as 3rd palette element {"a":["Color",
     name: 'upload_decal',
     feature: 'assets',
     category: 'write',
-    description: 'Upload an image file as a Decal asset to Roblox. Supports ROBLOSECURITY cookie auth (recommended, simpler) or ROBLOX_OPEN_CLOUD_API_KEY (needs asset:write scope + creator ID). Cookie auth is used automatically when ROBLOSECURITY is set.',
+    description: 'Upload an image file as a Decal asset to Roblox. Response includes decalId (wrapper asset) and imageId — use imageId for ImageLabel.Image / Decal.Texture. For Open Cloud uploads imageId is resolved via the connected Studio plugin and is null if disconnected. Supports ROBLOSECURITY cookie auth (recommended, simpler) or ROBLOX_OPEN_CLOUD_API_KEY (needs asset:write scope + creator ID). Cookie auth is used automatically when ROBLOSECURITY is set.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -1,3 +1,5 @@
+import RenderMonitor from "../RenderMonitor";
+
 interface VIMethods {
 	SendMouseButtonEvent(x: number, y: number, button: number, isDown: boolean): void;
 	SendMouseMoveEvent(x: number, y: number): void;
@@ -23,6 +25,13 @@ function simulateMouseInput(requestData: Record<string, unknown>) {
 	const scrollDirection = requestData.scrollDirection as string | undefined;
 
 	if (!action) return { error: "action is required" };
+
+	// A minimized window suspends input processing while Heartbeat keeps
+	// firing, so VIM events would "succeed" with zero effect.
+	const notRendering = RenderMonitor.notRenderingReason();
+	if (notRendering !== undefined) {
+		return { error: notRendering, errorCode: "window_not_rendering", retryable: true };
+	}
 
 	const vim = getVIM();
 	if (!vim) return { error: "VirtualInputManager is not available in this context" };
@@ -65,6 +74,11 @@ function simulateKeyboardInput(requestData: Record<string, unknown>) {
 	const duration = (requestData.duration as number) ?? 0.1;
 
 	if (!keyCodeName) return { error: "keyCode is required" };
+
+	const notRendering = RenderMonitor.notRenderingReason();
+	if (notRendering !== undefined) {
+		return { error: notRendering, errorCode: "window_not_rendering", retryable: true };
+	}
 
 	const vim = getVIM();
 	if (!vim) return { error: "VirtualInputManager is not available in this context" };

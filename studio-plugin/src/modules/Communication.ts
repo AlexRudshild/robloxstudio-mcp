@@ -132,6 +132,39 @@ function getConnectionStatus(connIndex: number): string {
 	return "connecting";
 }
 
+// Request IDs currently being processed, so the server re-serving a still-open
+// request on the next poll doesn't spawn a duplicate concurrent handler.
+const inFlightRequests = new Set<string>();
+
+// Throttle for re-issuing /ready after the server reports knownInstance=false.
+// Without this, every poll during the brief window where the server has just
+// restarted but hasn't seen our re-ready yet would fire a duplicate /ready.
+// This same throttle also bounds the (degenerate) two-edit-window case to one
+// re-ready every 2s per window, so it can't tight-loop.
+let lastReadyPostAt = 0;
+
+function sendReady(conn: Connection, force?: boolean) {
+	const now = tick();
+	if (!force && now - lastReadyPostAt < 2) return;
+	lastReadyPostAt = now;
+	task.spawn(() => {
+		const [readyOk, readyResult] = pcall(() => {
+			return HttpService.RequestAsync({
+				Url: `${conn.serverUrl}/ready`,
+				Method: "POST",
+				Headers: { "Content-Type": "application/json" },
+				Body: HttpService.JSONEncode({ instanceId, role: detectRole(), pluginReady: true, timestamp: tick() }),
+			});
+		});
+		if (readyOk && readyResult.Success) {
+			const [parseOk, readyData] = pcall(() => HttpService.JSONDecode(readyResult.Body) as ReadyResponse);
+			if (parseOk && readyData.assignedRole) {
+				assignedRole = readyData.assignedRole;
+			}
+		}
+	});
+}
+
 function pollForRequests(connIndex: number) {
 	const conn = State.getConnection(connIndex);
 	if (!conn || !conn.isActive) return;
@@ -161,6 +194,18 @@ function pollForRequests(connIndex: number) {
 		const mcpConnected = data.mcpConnected === true;
 		conn.lastHttpOk = true;
 		conn.lastMcpOk = mcpConnected;
+
+		// Server restarted or evicted us as stale: its instances map no longer
+		// has this plugin, so tool calls would fail with target_not_connected.
+		// Re-register (sendReady self-throttles to once per 2s, so a burst of
+		// polls coalesces and a lost /ready keeps retrying until it lands). Only
+		// from the edit DM: during in-place Run mode this same plugin polls with
+		// IsEdit()=false/IsServer()=true, and re-readying there would re-register
+		// the edit plugin as role "server", breaking every default-target
+		// ("edit") tool call.
+		if (data.knownInstance === false && RunService.IsEdit()) {
+			sendReady(conn);
+		}
 
 		if (connIndex === State.getActiveTabIndex()) {
 			const el = ui;
@@ -203,15 +248,26 @@ function pollForRequests(connIndex: number) {
 			}
 		}
 
-		if (data.request && mcpConnected) {
-			task.spawn(() => {
-				const [ok, response] = pcall(() => processRequest(data.request!));
-				if (ok) {
-					sendResponse(conn, data.requestId!, response);
-				} else {
-					sendResponse(conn, data.requestId!, { error: tostring(response) });
-				}
-			});
+		if (data.request && mcpConnected && data.requestId !== undefined) {
+			const reqId = data.requestId;
+			// The server re-serves the same pending request on every poll until it
+			// gets a /response. Without this guard a slow handler (e.g. stop_playtest
+			// waiting on cross-DM teardown) would spawn a new thread each 0.5s poll,
+			// running the same command many times concurrently. Dedupe by requestId
+			// while the handler is in flight; a genuinely lost response still retries
+			// on a later poll because we clear the id after the send attempt.
+			if (!inFlightRequests.has(reqId)) {
+				inFlightRequests.add(reqId);
+				task.spawn(() => {
+					const [ok, response] = pcall(() => processRequest(data.request!));
+					if (ok) {
+						sendResponse(conn, reqId, response);
+					} else {
+						sendResponse(conn, reqId, { error: tostring(response) });
+					}
+					inFlightRequests.delete(reqId);
+				});
+			}
 		}
 	} else if (conn.isActive) {
 		conn.consecutiveFailures++;
@@ -294,7 +350,6 @@ function activatePlugin(connIndex?: number) {
 	conn.isActive = true;
 	conn.consecutiveFailures = 0;
 	conn.currentRetryDelay = 0.5;
-	ui.screenGui.Enabled = true;
 
 	if (idx === State.getActiveTabIndex()) {
 		conn.serverUrl = ui.urlInput.Text;
@@ -317,20 +372,7 @@ function activatePlugin(connIndex?: number) {
 			});
 		}
 
-		const [readyOk, readyResult] = pcall(() => {
-			return HttpService.RequestAsync({
-				Url: `${conn.serverUrl}/ready`,
-				Method: "POST",
-				Headers: { "Content-Type": "application/json" },
-				Body: HttpService.JSONEncode({ instanceId, role: detectRole(), pluginReady: true, timestamp: tick() }),
-			});
-		});
-		if (readyOk && readyResult.Success) {
-			const [parseOk, readyData] = pcall(() => HttpService.JSONDecode(readyResult.Body) as ReadyResponse);
-			if (parseOk && readyData.assignedRole) {
-				assignedRole = readyData.assignedRole;
-			}
-		}
+		sendReady(conn, true);
 	});
 }
 

@@ -9,6 +9,7 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
+import { registerEmptyResourceShim } from './mcp-compat.js';
 import { RobloxStudioTools } from './tools/index.js';
 import { BridgeService } from './bridge-service.js';
 import { FeatureRegistry } from './feature-registry.js';
@@ -222,11 +223,17 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
       bridge.updateInstanceActivity(instanceId);
     }
 
+    // knownInstance=false signals to the plugin that the MCP server has
+    // restarted (its in-memory instances map is empty) or evicted it as
+    // stale, and the plugin should re-issue /ready. Without this, polls
+    // succeed (HTTP 200) but every tool call fails with target_not_connected.
     let callerRole = 'edit';
+    let knownInstance = false;
     if (instanceId) {
       const inst = bridge.getInstances().find(i => i.instanceId === instanceId);
       if (inst) {
         callerRole = inst.role;
+        knownInstance = true;
       }
     }
 
@@ -235,6 +242,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
         error: 'MCP server not connected',
         pluginConnected: true,
         mcpConnected: false,
+        knownInstance,
         request: null
       });
       return;
@@ -247,6 +255,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
         requestId: pendingRequest.requestId,
         mcpConnected: true,
         pluginConnected: true,
+        knownInstance,
         proxyInstanceCount: proxyInstances.size
       });
     } else {
@@ -254,6 +263,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
         request: null,
         mcpConnected: true,
         pluginConnected: true,
+        knownInstance,
         proxyInstanceCount: proxyInstances.size
       });
     }
@@ -315,6 +325,7 @@ export function createHttpServer(tools: RobloxStudioTools, bridge: BridgeService
           { name: serverConfig.name, version: serverConfig.version },
           { capabilities: { tools: { listChanged: true } } }
         );
+        registerEmptyResourceShim(server);
 
         server.setRequestHandler(ListToolsRequestSchema, async () => ({
           tools: allTools.filter(isToolEnabled).map(t => ({

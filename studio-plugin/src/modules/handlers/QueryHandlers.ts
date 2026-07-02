@@ -221,8 +221,22 @@ function searchFiles(requestData: Record<string, unknown>) {
 }
 
 function getPlaceInfo(_requestData: Record<string, unknown>) {
-	return {
-		placeName: game.Name,
+	const dataModelName = game.Name;
+	let placeName = dataModelName;
+
+	if (game.PlaceId > 0) {
+		const MarketplaceService = game.GetService("MarketplaceService");
+		const [ok, info] = pcall(() => MarketplaceService.GetProductInfo(game.PlaceId));
+		if (ok && info !== undefined) {
+			const name = (info as { Name?: string }).Name;
+			if (typeIs(name, "string") && name !== "") {
+				placeName = name;
+			}
+		}
+	}
+
+	const result: Record<string, unknown> = {
+		placeName,
 		placeId: game.PlaceId,
 		gameId: game.GameId,
 		jobId: game.JobId,
@@ -231,6 +245,8 @@ function getPlaceInfo(_requestData: Record<string, unknown>) {
 			className: game.Workspace.ClassName,
 		},
 	};
+	if (dataModelName !== placeName) result.dataModelName = dataModelName;
+	return result;
 }
 
 function getServices(requestData: Record<string, unknown>) {
@@ -671,15 +687,93 @@ function getProjectStructure(requestData: Record<string, unknown>) {
 	return tree;
 }
 
+// Split a Lua pattern on TOP-LEVEL "|" into alternatives. Lua patterns have no
+// alternation operator, so "foo|bar" would otherwise be matched as the literal
+// text "foo|bar" and silently never hit. "%|" stays a literal pipe, and "%bxy"
+// keeps both balanced-match delimiter characters.
+function splitLuaAlternation(pattern: string): string[] {
+	const parts: string[] = [];
+	let current = "";
+	let i = 1;
+	const n = pattern.size();
+	let inCharClass = false;
+	while (i <= n) {
+		const c = string.sub(pattern, i, i);
+		if (c === "%") {
+			if (string.sub(pattern, i + 1, i + 1) === "b") {
+				current += string.sub(pattern, i, math.min(i + 3, n));
+				i += 4;
+				continue;
+			}
+			// Preserve an escape pair (e.g. %|, %., %d) intact.
+			current += string.sub(pattern, i, i + 1);
+			i += 2;
+		} else if (c === "[") {
+			inCharClass = true;
+			current += c;
+			i += 1;
+		} else if (c === "]") {
+			inCharClass = false;
+			current += c;
+			i += 1;
+		} else if (c === "|" && !inCharClass) {
+			parts.push(current);
+			current = "";
+			i += 1;
+		} else {
+			current += c;
+			i += 1;
+		}
+	}
+	parts.push(current);
+	return parts;
+}
+
+const PATTERN_ERROR_PREFIX = "MCP_PATTERN_ERROR:";
+
+// Return the earliest match across alternatives (mirrors regex alternation).
+// string.find is pcall-wrapped because Lua validates some pattern items lazily
+// (e.g. a %1 capture back-reference or a malformed tail after a matchable
+// prefix) and only throws once the matcher reaches them on a real subject — so
+// a bad pattern that passed the empty-subject pre-check still throws mid-scan.
+// Re-raise with a marker so grepScripts can return a structured invalid_pattern.
+function findFirstPattern(line: string, alternatives: string[]): [number | undefined, number | undefined] {
+	let bestStart: number | undefined;
+	let bestEnd: number | undefined;
+	for (const alt of alternatives) {
+		if (alt === "") continue;
+		let ms: number | undefined;
+		let me: number | undefined;
+		const [ok, err] = pcall(() => {
+			const [s, e] = string.find(line, alt);
+			ms = s;
+			me = e as number | undefined;
+		});
+		if (!ok) error(`${PATTERN_ERROR_PREFIX}${tostring(err)}`);
+		if (ms !== undefined && (bestStart === undefined || ms < bestStart)) {
+			bestStart = ms;
+			bestEnd = me;
+		}
+	}
+	return [bestStart, bestEnd];
+}
+
 function grepScripts(requestData: Record<string, unknown>) {
 	const pattern = requestData.pattern as string;
 	if (!pattern) return { error: "pattern is required", errorCode: "missing_arg", argName: "pattern" };
 
-	const caseSensitive = (requestData.caseSensitive as boolean) ?? false;
+	const usePattern = (requestData.usePattern as boolean) ?? false;
+	if (usePattern && requestData.caseSensitive === false) {
+		return {
+			error: "Case-insensitive Lua pattern search is not supported. Omit caseSensitive (pattern mode is case-sensitive) or use literal search.",
+			errorCode: "invalid_arg",
+			argName: "caseSensitive",
+		};
+	}
+	const caseSensitive = usePattern ? true : ((requestData.caseSensitive as boolean) ?? false);
 	const contextLines = (requestData.contextLines as number) ?? 0;
 	const maxResults = (requestData.maxResults as number) ?? 100;
 	const maxResultsPerScript = (requestData.maxResultsPerScript as number) ?? 0;
-	const usePattern = (requestData.usePattern as boolean) ?? false;
 	const filesOnly = (requestData.filesOnly as boolean) ?? false;
 	const searchPath = (requestData.path as string) ?? "";
 	const classFilter = requestData.classFilter as string | undefined;
@@ -689,6 +783,24 @@ function grepScripts(requestData: Record<string, unknown>) {
 
 	// Prepare pattern for matching
 	const searchPattern = caseSensitive ? pattern : pattern.lower();
+	// Pre-split top-level "|" alternation once (pattern mode only).
+	let patternAlternatives: string[] | undefined;
+	if (usePattern) {
+		patternAlternatives = splitLuaAlternation(searchPattern);
+		let hasNonEmpty = false;
+		for (const alt of patternAlternatives) {
+			if (alt !== "") {
+				hasNonEmpty = true;
+				const [ok, err] = pcall(() => string.find("", alt));
+				if (!ok) {
+					return { error: `Malformed Lua pattern: ${err}`, errorCode: "invalid_pattern", pattern: alt };
+				}
+			}
+		}
+		if (!hasNonEmpty) {
+			return { error: "Pattern has no non-empty alternatives", errorCode: "invalid_pattern" };
+		}
+	}
 
 	interface LineMatch {
 		line: number;
@@ -736,7 +848,7 @@ function grepScripts(requestData: Record<string, unknown>) {
 				let matchEnd: number | undefined;
 
 				if (usePattern) {
-					[matchStart, matchEnd] = string.find(searchLine, searchPattern);
+					[matchStart, matchEnd] = findFirstPattern(searchLine, patternAlternatives!);
 				} else {
 					[matchStart, matchEnd] = string.find(searchLine, searchPattern, 1, true);
 				}
@@ -796,7 +908,15 @@ function grepScripts(requestData: Record<string, unknown>) {
 		}
 	}
 
-	searchInstance(startInstance);
+	const [scanOk, scanErr] = pcall(() => searchInstance(startInstance));
+	if (!scanOk) {
+		const msg = tostring(scanErr);
+		const [patErr] = string.match(msg, `${PATTERN_ERROR_PREFIX}(.*)$`);
+		if (patErr !== undefined) {
+			return { error: `Malformed Lua pattern: ${patErr}`, errorCode: "invalid_pattern" };
+		}
+		error(scanErr);
+	}
 
 	const matched = results.size();
 	if (matched === 0) {

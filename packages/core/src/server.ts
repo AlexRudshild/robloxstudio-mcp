@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import http from 'http';
 import { createHttpServer, listenWithRetry } from './http-server.js';
+import { registerEmptyResourceShim } from './mcp-compat.js';
 import { RobloxStudioTools } from './tools/index.js';
 import { BridgeService } from './bridge-service.js';
 import { ProxyBridgeService } from './proxy-bridge-service.js';
@@ -44,6 +45,7 @@ export class RobloxStudioMCPServer {
         },
       }
     );
+    registerEmptyResourceShim(this.server);
 
     this.bridge = new BridgeService();
     this.tools = new RobloxStudioTools(this.bridge, this.features);
@@ -301,7 +303,8 @@ export class RobloxStudioMCPServer {
       boundPort = result.port;
       console.error(`HTTP server listening on ${host}:${boundPort} for Studio plugin (primary mode)`);
       console.error(`Streamable HTTP MCP endpoint: http://localhost:${boundPort}/mcp`);
-    } catch {
+    } catch (err) {
+      console.error(`Could not bind primary HTTP server: ${(err as Error).message}`);
       bridgeMode = 'proxy';
       primaryApp = undefined;
       const proxyBridge = new ProxyBridgeService(`http://localhost:${basePort}`);
@@ -309,25 +312,32 @@ export class RobloxStudioMCPServer {
       this.tools = new RobloxStudioTools(this.bridge, this.features);
       console.error(`Port ${basePort} in use — entering proxy mode (forwarding to localhost:${basePort})`);
 
-      // Periodically try to promote to primary if the port frees up
+      // Periodically try to promote to primary if the port frees up.
+      // Build the candidate primary infrastructure on local vars first; only
+      // swap this.bridge / this.tools AFTER the bind succeeds. Swapping before
+      // the await leaves a window each interval where tool calls land on a
+      // BridgeService with no plugin polling it (queue with no consumer →
+      // 30s timeout).
       const promotionIntervalMs = parseInt(process.env.ROBLOX_STUDIO_PROXY_PROMOTION_INTERVAL_MS || '5000');
       promotionInterval = setInterval(async () => {
+        const candidateBridge = new BridgeService();
+        const candidateTools = new RobloxStudioTools(candidateBridge, this.features);
+        const candidateApp = createHttpServer(candidateTools, candidateBridge, this.allowedToolNames, this.config, this.features);
         try {
-          this.bridge = new BridgeService();
-          this.tools = new RobloxStudioTools(this.bridge, this.features);
-          primaryApp = createHttpServer(this.tools, this.bridge, this.allowedToolNames, this.config, this.features);
-          const result = await listenWithRetry(primaryApp, host, basePort, 1);
+          const result = await listenWithRetry(candidateApp, host, basePort, 1);
+          // Bind succeeded — atomically swap to primary mode (synchronous from here).
+          proxyBridge.stop();
+          this.bridge = candidateBridge;
+          this.tools = candidateTools;
           httpHandle = result.server;
           boundPort = result.port;
+          primaryApp = candidateApp;
           bridgeMode = 'primary';
           (primaryApp as any).setMCPServerActive(true);
           console.error(`Promoted from proxy to primary on port ${boundPort}`);
           if (promotionInterval) clearInterval(promotionInterval);
         } catch {
-          // Still can't bind — stay in proxy mode, restore proxy bridge
-          this.bridge = new ProxyBridgeService(`http://localhost:${basePort}`);
-          this.tools = new RobloxStudioTools(this.bridge, this.features);
-          primaryApp = undefined;
+          // Still can't bind — discard the candidate, existing proxy stays live
         }
       }, promotionIntervalMs);
     }
@@ -404,6 +414,7 @@ export class RobloxStudioMCPServer {
       clearInterval(activityInterval);
       clearInterval(cleanupInterval);
       if (promotionInterval) clearInterval(promotionInterval);
+      if (this.bridge instanceof ProxyBridgeService) this.bridge.stop();
       await this.server.close().catch(() => {});
       if (httpHandle) try { httpHandle.close(); } catch {}
       if (legacyHandle) try { legacyHandle.close(); } catch {}

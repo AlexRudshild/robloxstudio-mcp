@@ -32,6 +32,7 @@ export interface PollResponse {
 	mcpConnected: boolean;
 	request?: RequestPayload;
 	requestId?: string;
+	knownInstance?: boolean;
 }
 
 export interface ReadyResponse {

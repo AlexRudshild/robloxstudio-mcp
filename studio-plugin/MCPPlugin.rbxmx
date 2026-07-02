@@ -10,11 +10,25 @@ local RunService = TS.import(script, script, "node_modules", "@rbxts", "services
 local State = TS.import(script, script, "modules", "State")
 local UI = TS.import(script, script, "modules", "UI")
 local Communication = TS.import(script, script, "modules", "Communication")
+local StopPlayMonitor = TS.import(script, script, "modules", "StopPlayMonitor")
+local RenderMonitor = TS.import(script, script, "modules", "RenderMonitor")
+StopPlayMonitor.init(plugin)
+-- Play-server DM: run ONLY the stop-signal monitor (1Hz settings poll).
+-- Cross-DM MessageOut reflection from edit → play-server does not work, and
+-- EndTest is illegal from the edit DM, so the play-server DM must consume
+-- stop_playtest requests itself via the plugin-settings mailbox.
+if not RunService:IsEdit() and RunService:IsServer() then
+	StopPlayMonitor.startMonitor()
+end
 -- In Play mode, Roblox loads the plugin in playtest DataModel(s) too.
 -- Only the edit-DataModel plugin should own the MCP toolbar, DockWidget, and
 -- /ready registration. Otherwise we get a second floating window with a retry
 -- storm and duplicate role=edit registrations.
 if RunService:IsEdit() then
+	RenderMonitor.start()
+	-- Stamp the anon place id now (edit DM) so any later play-DM clone shares the
+	-- same StopPlayMonitor mailbox key for unpublished places.
+	StopPlayMonitor.ensurePlaceId()
 	UI.init(plugin)
 	local elements = UI.getElements()
 	local toolbar = plugin:CreateToolbar("MCP Integration")
@@ -185,6 +199,48 @@ local function getConnectionStatus(connIndex)
 	end
 	return "connecting"
 end
+-- Request IDs currently being processed, so the server re-serving a still-open
+-- request on the next poll doesn't spawn a duplicate concurrent handler.
+local inFlightRequests = {}
+-- Throttle for re-issuing /ready after the server reports knownInstance=false.
+-- Without this, every poll during the brief window where the server has just
+-- restarted but hasn't seen our re-ready yet would fire a duplicate /ready.
+-- This same throttle also bounds the (degenerate) two-edit-window case to one
+-- re-ready every 2s per window, so it can't tight-loop.
+local lastReadyPostAt = 0
+local function sendReady(conn, force)
+	local now = tick()
+	if not force and now - lastReadyPostAt < 2 then
+		return nil
+	end
+	lastReadyPostAt = now
+	task.spawn(function()
+		local readyOk, readyResult = pcall(function()
+			return HttpService:RequestAsync({
+				Url = `{conn.serverUrl}/ready`,
+				Method = "POST",
+				Headers = {
+					["Content-Type"] = "application/json",
+				},
+				Body = HttpService:JSONEncode({
+					instanceId = instanceId,
+					role = detectRole(),
+					pluginReady = true,
+					timestamp = tick(),
+				}),
+			})
+		end)
+		if readyOk and readyResult.Success then
+			local parseOk, readyData = pcall(function()
+				return HttpService:JSONDecode(readyResult.Body)
+			end)
+			local _value = parseOk and readyData.assignedRole
+			if _value ~= "" and _value then
+				assignedRole = readyData.assignedRole
+			end
+		end
+	end)
+end
 local function pollForRequests(connIndex)
 	local conn = State.getConnection(connIndex)
 	if not conn or not conn.isActive then
@@ -214,6 +270,17 @@ local function pollForRequests(connIndex)
 		local mcpConnected = data.mcpConnected == true
 		conn.lastHttpOk = true
 		conn.lastMcpOk = mcpConnected
+		-- Server restarted or evicted us as stale: its instances map no longer
+		-- has this plugin, so tool calls would fail with target_not_connected.
+		-- Re-register (sendReady self-throttles to once per 2s, so a burst of
+		-- polls coalesces and a lost /ready keeps retrying until it lands). Only
+		-- from the edit DM: during in-place Run mode this same plugin polls with
+		-- IsEdit()=false/IsServer()=true, and re-readying there would re-register
+		-- the edit plugin as role "server", breaking every default-target
+		-- ("edit") tool call.
+		if data.knownInstance == false and RunService:IsEdit() then
+			sendReady(conn)
+		end
 		if connIndex == State.getActiveTabIndex() then
 			local el = ui
 			el.step1Dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
@@ -263,19 +330,30 @@ local function pollForRequests(connIndex)
 				UI.startPulseAnimation()
 			end
 		end
-		if data.request and mcpConnected then
-			task.spawn(function()
-				local ok, response = pcall(function()
-					return processRequest(data.request)
+		if data.request and mcpConnected and data.requestId ~= nil then
+			local reqId = data.requestId
+			-- The server re-serves the same pending request on every poll until it
+			-- gets a /response. Without this guard a slow handler (e.g. stop_playtest
+			-- waiting on cross-DM teardown) would spawn a new thread each 0.5s poll,
+			-- running the same command many times concurrently. Dedupe by requestId
+			-- while the handler is in flight; a genuinely lost response still retries
+			-- on a later poll because we clear the id after the send attempt.
+			if not (inFlightRequests[reqId] ~= nil) then
+				inFlightRequests[reqId] = true
+				task.spawn(function()
+					local ok, response = pcall(function()
+						return processRequest(data.request)
+					end)
+					if ok then
+						sendResponse(conn, reqId, response)
+					else
+						sendResponse(conn, reqId, {
+							error = tostring(response),
+						})
+					end
+					inFlightRequests[reqId] = nil
 				end)
-				if ok then
-					sendResponse(conn, data.requestId, response)
-				else
-					sendResponse(conn, data.requestId, {
-						error = tostring(response),
-					})
-				end
-			end)
+			end
 		end
 	elseif conn.isActive then
 		conn.consecutiveFailures += 1
@@ -354,7 +432,6 @@ local function activatePlugin(connIndex)
 	conn.isActive = true
 	conn.consecutiveFailures = 0
 	conn.currentRetryDelay = 0.5
-	ui.screenGui.Enabled = true
 	if idx == State.getActiveTabIndex() then
 		conn.serverUrl = ui.urlInput.Text
 		local portStr = string.match(conn.serverUrl, ":(%d+)$")
@@ -380,30 +457,7 @@ local function activatePlugin(connIndex)
 				end
 			end)
 		end
-		local readyOk, readyResult = pcall(function()
-			return HttpService:RequestAsync({
-				Url = `{conn.serverUrl}/ready`,
-				Method = "POST",
-				Headers = {
-					["Content-Type"] = "application/json",
-				},
-				Body = HttpService:JSONEncode({
-					instanceId = instanceId,
-					role = detectRole(),
-					pluginReady = true,
-					timestamp = tick(),
-				}),
-			})
-		end)
-		if readyOk and readyResult.Success then
-			local parseOk, readyData = pcall(function()
-				return HttpService:JSONDecode(readyResult.Body)
-			end)
-			local _value = parseOk and readyData.assignedRole
-			if _value ~= "" and _value then
-				assignedRole = readyData.assignedRole
-			end
-		end
+		sendReady(conn, true)
 	end)
 end
 local function deactivatePlugin(connIndex)
@@ -1383,6 +1437,8 @@ return {
           <Properties>
             <string name="Name">CaptureHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
+local RenderMonitor = TS.import(script, script.Parent.Parent, "RenderMonitor")
 local CaptureService = game:GetService("CaptureService")
 local AssetService = game:GetService("AssetService")
 local MAX_TILE_SIZE = 1024
@@ -1493,6 +1549,14 @@ local function readPixelsTiled(img, w, h)
 	return fullBuf
 end
 local function captureScreenshotData()
+	local notRendering = RenderMonitor.notRenderingReason()
+	if notRendering ~= nil then
+		return {
+			error = notRendering,
+			errorCode = "window_not_rendering",
+			retryable = true,
+		}
+	end
 	local contentId
 	CaptureService:CaptureScreenshot(function(id)
 		contentId = id
@@ -1501,7 +1565,9 @@ local function captureScreenshotData()
 	while contentId == nil do
 		if tick() - startTime > 10 then
 			return {
-				error = "Screenshot capture timed out. Ensure the Studio viewport is visible and you are in Edit mode (not Play mode). Known Roblox bug: capture may fail if viewport renders a solid color.",
+				error = "Screenshot capture timed out (CaptureScreenshot callback never fired). Ensure the Studio edit window is visible and you are in Edit mode (not Play mode) — restore it so the viewport renders. (Known Roblox bug: capture can also fail if the viewport renders a solid color.)",
+				errorCode = "capture_timeout",
+				retryable = true,
 			}
 		end
 		task.wait(0.1)
@@ -1549,6 +1615,8 @@ return {
           <Properties>
             <string name="Name">InputHandlers</string>
             <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
+local RenderMonitor = TS.import(script, script.Parent.Parent, "RenderMonitor")
 local function getVIM()
 	local ok, result = pcall(function()
 		return game:GetService("VirtualInputManager")
@@ -1576,6 +1644,16 @@ local function simulateMouseInput(requestData)
 	if not (action ~= "" and action) then
 		return {
 			error = "action is required",
+		}
+	end
+	-- A minimized window suspends input processing while Heartbeat keeps
+	-- firing, so VIM events would "succeed" with zero effect.
+	local notRendering = RenderMonitor.notRenderingReason()
+	if notRendering ~= nil then
+		return {
+			error = notRendering,
+			errorCode = "window_not_rendering",
+			retryable = true,
 		}
 	end
 	local vim = getVIM()
@@ -1652,6 +1730,14 @@ local function simulateKeyboardInput(requestData)
 	if not (keyCodeName ~= "" and keyCodeName) then
 		return {
 			error = "keyCode is required",
+		}
+	end
+	local notRendering = RenderMonitor.notRenderingReason()
+	if notRendering ~= nil then
+		return {
+			error = notRendering,
+			errorCode = "window_not_rendering",
+			retryable = true,
 		}
 	end
 	local vim = getVIM()
@@ -3786,8 +3872,22 @@ local function searchFiles(requestData)
 	}
 end
 local function getPlaceInfo(_requestData)
-	return {
-		placeName = game.Name,
+	local dataModelName = game.Name
+	local placeName = dataModelName
+	if game.PlaceId > 0 then
+		local MarketplaceService = game:GetService("MarketplaceService")
+		local ok, info = pcall(function()
+			return MarketplaceService:GetProductInfo(game.PlaceId)
+		end)
+		if ok and info ~= nil then
+			local name = info.Name
+			if type(name) == "string" and name ~= "" then
+				placeName = name
+			end
+		end
+	end
+	local result = {
+		placeName = placeName,
 		placeId = game.PlaceId,
 		gameId = game.GameId,
 		jobId = game.JobId,
@@ -3796,6 +3896,10 @@ local function getPlaceInfo(_requestData)
 			className = game.Workspace.ClassName,
 		},
 	}
+	if dataModelName ~= placeName then
+		result.dataModelName = dataModelName
+	end
+	return result
 end
 local function getServices(requestData)
 	local serviceName = requestData.serviceName
@@ -4415,6 +4519,80 @@ local function getProjectStructure(requestData)
 	tree.knownHash = treeHash
 	return tree
 end
+-- Split a Lua pattern on TOP-LEVEL "|" into alternatives. Lua patterns have no
+-- alternation operator, so "foo|bar" would otherwise be matched as the literal
+-- text "foo|bar" and silently never hit. "%|" stays a literal pipe, and "%bxy"
+-- keeps both balanced-match delimiter characters.
+local function splitLuaAlternation(pattern)
+	local parts = {}
+	local current = ""
+	local i = 1
+	local n = #pattern
+	local inCharClass = false
+	while i <= n do
+		local c = string.sub(pattern, i, i)
+		if c == "%" then
+			if string.sub(pattern, i + 1, i + 1) == "b" then
+				current ..= string.sub(pattern, i, math.min(i + 3, n))
+				i += 4
+				continue
+			end
+			-- Preserve an escape pair (e.g. %|, %., %d) intact.
+			current ..= string.sub(pattern, i, i + 1)
+			i += 2
+		elseif c == "[" then
+			inCharClass = true
+			current ..= c
+			i += 1
+		elseif c == "]" then
+			inCharClass = false
+			current ..= c
+			i += 1
+		elseif c == "|" and not inCharClass then
+			local _current = current
+			table.insert(parts, _current)
+			current = ""
+			i += 1
+		else
+			current ..= c
+			i += 1
+		end
+	end
+	local _current = current
+	table.insert(parts, _current)
+	return parts
+end
+local PATTERN_ERROR_PREFIX = "MCP_PATTERN_ERROR:"
+-- Return the earliest match across alternatives (mirrors regex alternation).
+-- string.find is pcall-wrapped because Lua validates some pattern items lazily
+-- (e.g. a %1 capture back-reference or a malformed tail after a matchable
+-- prefix) and only throws once the matcher reaches them on a real subject — so
+-- a bad pattern that passed the empty-subject pre-check still throws mid-scan.
+-- Re-raise with a marker so grepScripts can return a structured invalid_pattern.
+local function findFirstPattern(line, alternatives)
+	local bestStart
+	local bestEnd
+	for _, alt in alternatives do
+		if alt == "" then
+			continue
+		end
+		local ms
+		local me
+		local ok, err = pcall(function()
+			local s, e = string.find(line, alt)
+			ms = s
+			me = e
+		end)
+		if not ok then
+			error(`{PATTERN_ERROR_PREFIX}{tostring(err)}`)
+		end
+		if ms ~= nil and (bestStart == nil or ms < bestStart) then
+			bestStart = ms
+			bestEnd = me
+		end
+	end
+	return { bestStart, bestEnd }
+end
 local function grepScripts(requestData)
 	local pattern = requestData.pattern
 	if not (pattern ~= "" and pattern) then
@@ -4424,11 +4602,29 @@ local function grepScripts(requestData)
 			argName = "pattern",
 		}
 	end
-	local _condition = (requestData.caseSensitive)
+	local _condition = (requestData.usePattern)
 	if _condition == nil then
 		_condition = false
 	end
-	local caseSensitive = _condition
+	local usePattern = _condition
+	if usePattern and requestData.caseSensitive == false then
+		return {
+			error = "Case-insensitive Lua pattern search is not supported. Omit caseSensitive (pattern mode is case-sensitive) or use literal search.",
+			errorCode = "invalid_arg",
+			argName = "caseSensitive",
+		}
+	end
+	local _result
+	if usePattern then
+		_result = true
+	else
+		local _condition_1 = (requestData.caseSensitive)
+		if _condition_1 == nil then
+			_condition_1 = false
+		end
+		_result = _condition_1
+	end
+	local caseSensitive = _result
 	local _condition_1 = (requestData.contextLines)
 	if _condition_1 == nil then
 		_condition_1 = 0
@@ -4444,21 +4640,16 @@ local function grepScripts(requestData)
 		_condition_3 = 0
 	end
 	local maxResultsPerScript = _condition_3
-	local _condition_4 = (requestData.usePattern)
+	local _condition_4 = (requestData.filesOnly)
 	if _condition_4 == nil then
 		_condition_4 = false
 	end
-	local usePattern = _condition_4
-	local _condition_5 = (requestData.filesOnly)
+	local filesOnly = _condition_4
+	local _condition_5 = (requestData.path)
 	if _condition_5 == nil then
-		_condition_5 = false
+		_condition_5 = ""
 	end
-	local filesOnly = _condition_5
-	local _condition_6 = (requestData.path)
-	if _condition_6 == nil then
-		_condition_6 = ""
-	end
-	local searchPath = _condition_6
+	local searchPath = _condition_5
 	local classFilter = requestData.classFilter
 	local startInstance = if searchPath ~= "" then getInstanceByPath(searchPath) else game
 	if not startInstance then
@@ -4471,6 +4662,33 @@ local function grepScripts(requestData)
 	end
 	-- Prepare pattern for matching
 	local searchPattern = if caseSensitive then pattern else string.lower(pattern)
+	-- Pre-split top-level "|" alternation once (pattern mode only).
+	local patternAlternatives
+	if usePattern then
+		patternAlternatives = splitLuaAlternation(searchPattern)
+		local hasNonEmpty = false
+		for _, alt in patternAlternatives do
+			if alt ~= "" then
+				hasNonEmpty = true
+				local ok, err = pcall(function()
+					return string.find("", alt)
+				end)
+				if not ok then
+					return {
+						error = `Malformed Lua pattern: {err}`,
+						errorCode = "invalid_pattern",
+						pattern = alt,
+					}
+				end
+			end
+		end
+		if not hasNonEmpty then
+			return {
+				error = "Pattern has no non-empty alternatives",
+				errorCode = "invalid_pattern",
+			}
+		end
+	end
 	local results = {}
 	local totalMatches = 0
 	local scriptsSearched = 0
@@ -4506,7 +4724,9 @@ local function grepScripts(requestData)
 				local matchStart
 				local matchEnd
 				if usePattern then
-					matchStart, matchEnd = string.find(searchLine, searchPattern)
+					local _binding_1 = findFirstPattern(searchLine, patternAlternatives)
+					matchStart = _binding_1[1]
+					matchEnd = _binding_1[2]
 				else
 					matchStart, matchEnd = string.find(searchLine, searchPattern, 1, true)
 				end
@@ -4587,7 +4807,20 @@ local function grepScripts(requestData)
 			searchInstance(child)
 		end
 	end
-	searchInstance(startInstance)
+	local scanOk, scanErr = pcall(function()
+		return searchInstance(startInstance)
+	end)
+	if not scanOk then
+		local msg = tostring(scanErr)
+		local patErr = string.match(msg, `{PATTERN_ERROR_PREFIX}(.*)$`)
+		if patErr ~= nil then
+			return {
+				error = `Malformed Lua pattern: {patErr}`,
+				errorCode = "invalid_pattern",
+			}
+		end
+		error(scanErr)
+	end
 	local matched = #results
 	if matched == 0 then
 		return {
@@ -5989,10 +6222,11 @@ local TS = require(script.Parent.Parent.Parent.include.RuntimeLib)
 local _services = TS.import(script, script.Parent.Parent.Parent, "node_modules", "@rbxts", "services")
 local HttpService = _services.HttpService
 local LogService = _services.LogService
+local RunService = _services.RunService
+local StopPlayMonitor = TS.import(script, script.Parent.Parent, "StopPlayMonitor")
 local StudioTestService = game:GetService("StudioTestService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
-local STOP_SIGNAL = "__MCP_STOP__"
 local NAV_SIGNAL = "__MCP_NAV__"
 local NAV_RESULT = "__MCP_NAV_RESULT__"
 local testRunning = false
@@ -6004,16 +6238,64 @@ local stopListenerScript
 local navResultCallback
 local function buildCommandListenerSource()
 	return `local LogService = game:GetService("LogService")\
-local StudioTestService = game:GetService("StudioTestService")\
 local PathfindingService = game:GetService("PathfindingService")\
 local Players = game:GetService("Players")\
 local HttpService = game:GetService("HttpService")\
 local NAV_SIG = "{NAV_SIGNAL}"\
 local NAV_RES = "{NAV_RESULT}"\
+-- Mirror of Utils.getInstanceByPath: parse canonical paths that may contain\
+-- bracket-quoted segments (game.X["a.b"]) and GetService roots, so nav resolves\
+-- the same paths every other tool now emits.\
+local function parsePath(path)\
+	local i, len, parts, current = 1, #path, \{\}, ""\
+	if path == "" or path == "game" then return parts end\
+	if string.sub(path, 1, 5) == "game." then i = 6\
+	elseif string.sub(path, 1, 5) == "game[" then i = 5 end\
+	while i <= len do\
+		local ch = string.sub(path, i, i)\
+		if ch == "." then\
+			if current ~= "" then table.insert(parts, current); current = ""; i = i + 1\
+			elseif i > 1 and string.sub(path, i-1, i-1) == "." and i < len and string.sub(path, i+1, i+1) ~= "[" then\
+				current = "."; i = i + 1\
+			else i = i + 1 end\
+		elseif ch == "[" and i < len and (string.sub(path, i+1, i+1) == '"' or string.sub(path, i+1, i+1) == "'") and string.sub(path, i-1, i-1) ~= "." then\
+			if current ~= "" then table.insert(parts, current); current = "" end\
+			local quote = string.sub(path, i+1, i+1)\
+			local j, raw = i + 2, ""\
+			while j <= len do\
+				local c = string.sub(path, j, j)\
+				if c == "\\\\" then\
+					if j >= len then return nil end\
+					local nx = string.sub(path, j+1, j+1)\
+					if nx == "n" then raw = raw .. "\\n"\
+					elseif nx == "r" then raw = raw .. "\\r"\
+					elseif nx == "t" then raw = raw .. "\\t"\
+					else raw = raw .. nx end\
+					j = j + 2\
+				elseif c == quote then break\
+				else raw = raw .. c; j = j + 1 end\
+			end\
+			if j > len or string.sub(path, j, j) ~= quote or string.sub(path, j+1, j+1) ~= "]" then return nil end\
+			table.insert(parts, raw); i = j + 2\
+		else current = current .. ch; i = i + 1 end\
+	end\
+	if current ~= "" then table.insert(parts, current) end\
+	return parts\
+end\
+local function resolvePath(path)\
+	local parts = parsePath(path)\
+	if not parts then return nil end\
+	if #parts == 0 then return game end\
+	local ok, svc = pcall(function() return game:GetService(parts[1]) end)\
+	local cur = (ok and svc) or game:FindFirstChild(parts[1])\
+	for idx = 2, #parts do\
+		if not cur then return nil end\
+		cur = cur:FindFirstChild(parts[idx])\
+	end\
+	return cur\
+end\
 LogService.MessageOut:Connect(function(msg)\
-	if msg == "{STOP_SIGNAL}" then\
-		pcall(function() StudioTestService:EndTest("stopped_by_mcp") end)\
-	elseif string.sub(msg, 1, #NAV_SIG + 1) == NAV_SIG .. ":" then\
+	if string.sub(msg, 1, #NAV_SIG + 1) == NAV_SIG .. ":" then\
 		local json = string.sub(msg, #NAV_SIG + 2)\
 		task.spawn(function()\
 			local ok, d = pcall(function() return HttpService:JSONDecode(json) end)\
@@ -6035,14 +6317,10 @@ LogService.MessageOut:Connect(function(msg)\
 			end\
 			local target\
 			if d.instancePath then\
-				local parts = string.split(d.instancePath, ".")\
-				local cur = game\
-				for i = 2, #parts do\
-					cur = cur:FindFirstChild(parts[i])\
-					if not cur then\
-						print(NAV_RES .. ':\{"success":false,"error":"instance_not_found"\}')\
-						return\
-					end\
+				local cur = resolvePath(d.instancePath)\
+				if not cur then\
+					print(NAV_RES .. ':\{"success":false,"error":"instance_not_found"\}')\
+					return\
 				end\
 				if cur:IsA("BasePart") then target = cur.Position\
 				elseif cur:IsA("Model") and cur.PrimaryPart then target = cur.PrimaryPart.Position\
@@ -6114,11 +6392,13 @@ local function startPlaytest(requestData)
 	outputBuffer = {}
 	testResult = nil
 	testError = nil
+	-- Clear any stale stop-request token (e.g. from a defensive stop_playtest
+	-- that ran while nothing was playing) so the play-server DM's monitor can't
+	-- immediately EndTest this fresh session.
+	StopPlayMonitor.ensurePlaceId()
+	StopPlayMonitor.clearPending()
 	cleanupStopListener()
 	logConnection = LogService.MessageOut:Connect(function(message, messageType)
-		if message == STOP_SIGNAL then
-			return nil
-		end
 		local _message = message
 		local _arg1 = #NAV_SIGNAL
 		if string.sub(_message, 1, _arg1) == NAV_SIGNAL then
@@ -6179,36 +6459,104 @@ local function startPlaytest(requestData)
 	}
 end
 local function stopPlaytest(_requestData)
-	if testRunning then
-		warn(STOP_SIGNAL)
-		local _object = {
-			success = true,
-		}
-		local _left = "output"
+	-- In-place Run mode: this DM IS the running server (plugin loaded while
+	-- IsEdit was true, so the monitor never started here) — EndTest directly.
+	if RunService:IsRunning() and RunService:IsServer() then
 		local _array = {}
 		local _length = #_array
 		table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
-		_object[_left] = _array
-		_object.outputCount = #outputBuffer
-		_object.message = "Playtest stop signal sent."
-		return _object
-	end
-	local endTest = StudioTestService
-	local endOk = pcall(function()
-		endTest:EndTest("stopped_by_mcp")
-	end)
-	if endOk then
+		local captured = _array
+		local endOk, endErr = pcall(function()
+			return StudioTestService:EndTest("stopped_by_mcp")
+		end)
+		if not endOk then
+			return {
+				error = `StudioTestService.EndTest failed: {endErr}`,
+				errorCode = "end_test_failed",
+			}
+		end
+		-- Let the run unwind so an immediate start_playtest doesn't race teardown.
+		local runStart = tick()
+		while testRunning and tick() - runStart < 10 do
+			task.wait(0.25)
+		end
 		return {
 			success = true,
-			output = {},
-			outputCount = 0,
-			message = "Playtest stopped via StudioTestService.",
+			output = captured,
+			outputCount = #captured,
+			message = "Playtest stopped.",
 		}
 	end
-	return {
-		error = "No MCP-started test is running and direct stop failed. The playtest may have been started manually.",
-		errorCode = "no_test_running",
+	-- Play mode: the test runs in a separate DataModel. Signal its
+	-- StopPlayMonitor via the plugin-settings mailbox and wait for the
+	-- play-server DM to confirm it actually consumed the request —
+	-- cross-DM warn()/MessageOut does not reach it, and EndTest is
+	-- illegal from the edit DM.
+	local req = StopPlayMonitor.requestStop()
+	if not req.ok or req.requestId == nil then
+		return {
+			error = "Could not write the stop request to plugin settings.",
+			errorCode = "plugin_not_ready",
+		}
+	end
+	-- Always allow the full timeout: monitor detection is fast but EndTest
+	-- teardown on a heavy place is the slow part, and the result token is only
+	-- written after teardown — a shorter wait would falsely report no_test_running
+	-- for a real (e.g. manually-started) session that is in fact being stopped.
+	local result = StopPlayMonitor.waitForConsumption(req.requestId)
+	StopPlayMonitor.clearPending(req.requestId)
+	if not result.consumed then
+		if not testRunning then
+			return {
+				error = "No running playtest acknowledged the stop request.",
+				errorCode = "no_test_running",
+			}
+		end
+		local _object = {}
+		local _left = "error"
+		local _condition = result.error
+		if _condition == nil then
+			_condition = "Playtest did not acknowledge the stop request."
+		end
+		_object[_left] = _condition
+		_object.errorCode = "stop_not_confirmed"
+		_object.retryable = true
+		local _left_1 = "output"
+		local _array = {}
+		local _length = #_array
+		table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
+		_object[_left_1] = _array
+		_object.outputCount = #outputBuffer
+		return _object
+	end
+	if not result.ok then
+		local _object = {}
+		local _left = "error"
+		local _condition = result.error
+		if _condition == nil then
+			_condition = "EndTest failed in the play-server DataModel."
+		end
+		_object[_left] = _condition
+		_object.errorCode = "end_test_failed"
+		return _object
+	end
+	-- Confirmed. Wait for ExecutePlayModeAsync to unwind so an immediate
+	-- start_playtest doesn't race the teardown.
+	local start = tick()
+	while testRunning and tick() - start < 10 do
+		task.wait(0.25)
+	end
+	local _object = {
+		success = true,
 	}
+	local _left = "output"
+	local _array = {}
+	local _length = #_array
+	table.move(outputBuffer, 1, #outputBuffer, _length + 1, _array)
+	_object[_left] = _array
+	_object.outputCount = #outputBuffer
+	_object.message = if testRunning then "Playtest stop confirmed; Studio teardown still in progress." else "Playtest stopped."
+	return _object
 end
 local function getPlaytestOutput(_requestData)
 	local _object = {
@@ -6390,6 +6738,67 @@ return {
       </Item>
       <Item class="ModuleScript" referent="16">
         <Properties>
+          <string name="Name">RenderMonitor</string>
+          <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.include.RuntimeLib)
+-- Detects whether the Studio window is actually rendering, so virtual input
+-- and screenshot tools can surface a clear reason instead of silently failing.
+--
+-- When a Studio window is MINIMIZED, the engine suspends the render loop AND
+-- input processing, but keeps running scripts (Heartbeat keeps firing). That's
+-- why simulate_*_input would return success while having zero effect, and
+-- CaptureService:CaptureScreenshot would time out. Validated live: during a 3s
+-- minimize, RenderStepped's max inter-frame gap was 5.08s while Heartbeat's was
+-- 0.10s. So RenderStepped freshness is the reliable "is this window rendering?"
+-- signal; Heartbeat is not.
+local RunService = TS.import(script, script.Parent.Parent, "node_modules", "@rbxts", "services").RunService
+local lastFrame = 0
+local connected = false
+-- Above this many seconds since the last rendered frame, we treat the window
+-- as not rendering. RenderStepped normally fires every ~16ms; a multi-second
+-- gap only happens when minimized/suspended, so 1s cleanly avoids false
+-- positives from ordinary frame hitches while still catching the real case.
+local STALE_THRESHOLD = 1.0
+local function start()
+	if connected then
+		return nil
+	end
+	-- RenderStepped can only be connected from a client/edit render loop; it
+	-- throws in the play-server DM. pcall so a server-DM call is a safe no-op
+	-- (connected stays false → notRenderingReason() returns undefined there).
+	local ok = pcall(function()
+		RunService.RenderStepped:Connect(function()
+			lastFrame = tick()
+		end)
+	end)
+	if ok then
+		connected = true
+		lastFrame = tick()
+	end
+end
+-- Returns a human-readable reason if the window appears minimized / not
+-- rendering (so input + screenshots won't work), else undefined. Fail-open:
+-- when the monitor isn't active in this DM (server peer, or connect failed) it
+-- returns undefined so we never block on a false signal.
+local function notRenderingReason()
+	if not connected then
+		return nil
+	end
+	local gap = tick() - lastFrame
+	if gap > STALE_THRESHOLD then
+		return string.format("Edit viewport is not rendering (no frame in %.1fs) — the Studio window is minimized/occluded, " .. "or a playtest is active and showing the play view. Virtual input and screenshots target the edit " .. "viewport and only work when it is the visible, rendering window. Restore/focus the edit window " .. "(or stop the playtest) and retry.", gap)
+	end
+	return nil
+end
+return {
+	start = start,
+	notRenderingReason = notRenderingReason,
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="17">
+        <Properties>
           <string name="Name">State</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local CURRENT_VERSION = "2.6.0"
@@ -6484,7 +6893,315 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="18">
+        <Properties>
+          <string name="Name">StopPlayMonitor</string>
+          <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
+local TS = require(script.Parent.Parent.include.RuntimeLib)
+-- Cross-DM stop_playtest signaling via plugin:SetSetting. Play-mode tests run
+-- in a separate DataModel; cross-DM LogService.MessageOut reflection does NOT
+-- reach it, and StudioTestService:EndTest is illegal from the edit DM. The
+-- plugin settings store is the one channel shared across every DataModel the
+-- plugin runs in (edit DMs, play-server DMs, play-client DMs).
+--
+-- For each place we use a dedicated key "MCP_STOP_PLAY_<instanceId>" as a tiny
+-- tokenized request/result mailbox:
+--
+--   * The edit DM's handler writes a stop request token into its own key
+--     (computed from its placeId / ServerStorage anon UUID).
+--   * Each play-server DM's monitor loop polls the key matching its own
+--     instanceId at 1Hz. On a fresh token, it calls StudioTestService:EndTest
+--     and writes a matching result token. Play-server DMs for other places
+--     never touch this key.
+--   * The edit DM waits up to ~8s for its result token, confirming a matching
+--     play-server actually consumed the request.
+--
+-- The per-place key scoping matters because plugin settings are shared across
+-- every Studio window running the plugin — a shared boolean would let one
+-- window's stop kill another window's playtest. Tokens (vs booleans) prevent
+-- a stale flag from a crashed session killing the next playtest, and
+-- flag-cleared-equals-success false positives.
+--
+-- During publish-after-connect, both "anon:<uuid>" and "place:<PlaceId>" can
+-- refer to the same Studio place, so stop requests are mirrored across both
+-- keys while the monitor waits for a matching result on either key.
+local _services = TS.import(script, script.Parent.Parent, "node_modules", "@rbxts", "services")
+local HttpService = _services.HttpService
+local RunService = _services.RunService
+local ServerStorage = _services.ServerStorage
+local StudioTestService = game:GetService("StudioTestService")
+local SETTING_KEY_PREFIX = "MCP_STOP_PLAY_"
+-- Keep this conservative. plugin:GetSetting is backed by Studio's plugin
+-- settings store, and this monitor runs during every play session, including
+-- manually-started Play. The official reference implementation polls at 1s.
+local POLL_INTERVAL_SEC = 1
+-- Total time we wait for the matching play-server DM to consume the
+-- signal. Must cover: monitor detection (<= POLL_INTERVAL_SEC) +
+-- StudioTestService:EndTest teardown (several seconds on heavier places).
+-- 8s is intentionally shorter than the MCP request timeout but long enough
+-- for the 1s monitor cadence plus ordinary Studio teardown latency.
+local WAIT_FOR_CONSUMPTION_TIMEOUT_SEC = 8.0
+local WAIT_POLL_SEC = 0.1
+local REQUEST_TTL_SEC = 12.0
+local pluginRef
+local endTestIssued = false
+local function init(p)
+	pluginRef = p
+end
+-- Must be called in the EDIT DM before a playtest starts. For unpublished
+-- places (PlaceId 0) it stamps the __MCPPlaceId attribute so the play-DM clone
+-- inherits the SAME anon id — otherwise the edit DM and the play-server DM mint
+-- two different GUIDs, write different mailbox keys, and stop_playtest can never
+-- be confirmed for the first play session of a fresh place.
+local computeInstanceIds
+local function ensurePlaceId()
+	computeInstanceIds()
+end
+-- Both the edit DM and the play-server DM must agree on the place identifier.
+-- Published places: placeId. Unpublished: UUID stored as an attribute on
+-- ServerStorage, which travels with the place clone into the play DM.
+local function addUnique(values, value)
+	local _values = values
+	local _value = value
+	if not (table.find(_values, _value) ~= nil) then
+		local _values_1 = values
+		local _value_1 = value
+		table.insert(_values_1, _value_1)
+	end
+end
+function computeInstanceIds()
+	local ids = {}
+	if game.PlaceId ~= 0 then
+		addUnique(ids, `place:{tostring(game.PlaceId)}`)
+	end
+	local existing = ServerStorage:GetAttribute("__MCPPlaceId")
+	if type(existing) == "string" and existing ~= "" then
+		addUnique(ids, `anon:{existing}`)
+	elseif game.PlaceId == 0 then
+		local fresh = HttpService:GenerateGUID(false)
+		pcall(function()
+			return ServerStorage:SetAttribute("__MCPPlaceId", fresh)
+		end)
+		addUnique(ids, `anon:{fresh}`)
+	end
+	return ids
+end
+local function settingKey(instanceId)
+	return SETTING_KEY_PREFIX .. instanceId
+end
+local function settingKeys()
+	local _exp = computeInstanceIds()
+	-- ▼ ReadonlyArray.map ▼
+	local _newValue = table.create(#_exp)
+	local _callback = function(instanceId)
+		return settingKey(instanceId)
+	end
+	for _k, _v in _exp do
+		_newValue[_k] = _callback(_v, _k - 1, _exp)
+	end
+	-- ▲ ReadonlyArray.map ▲
+	return _newValue
+end
+local function readSetting(key)
+	if not pluginRef then
+		return nil
+	end
+	local ok, value = pcall(function()
+		return pluginRef:GetSetting(key)
+	end)
+	return if ok then value else nil
+end
+local function writeSetting(key, value)
+	if not pluginRef then
+		return false
+	end
+	local ok = pcall(function()
+		return pluginRef:SetSetting(key, value)
+	end)
+	return ok
+end
+local function decodePayload(value)
+	local decoded = value
+	local _value = value
+	if type(_value) == "string" then
+		local ok, result = pcall(function()
+			return HttpService:JSONDecode(value)
+		end)
+		if not ok then
+			return nil
+		end
+		decoded = result
+	end
+	local _decoded = decoded
+	if not (type(_decoded) == "table") then
+		return nil
+	end
+	local payload = decoded
+	local _kind = payload.kind
+	local _condition = not (type(_kind) == "string")
+	if not _condition then
+		local _id = payload.id
+		_condition = not (type(_id) == "string")
+	end
+	if _condition then
+		return nil
+	end
+	return payload
+end
+local function writePayload(key, payload)
+	local encodedOk, encoded = pcall(function()
+		return HttpService:JSONEncode(payload)
+	end)
+	if not encodedOk or not (type(encoded) == "string") then
+		return false
+	end
+	return writeSetting(key, encoded)
+end
+local function writeResult(key, request, ok, errText)
+	writePayload(key, {
+		kind = "result",
+		id = request.id,
+		requestedAt = request.requestedAt,
+		consumedAt = tick(),
+		ok = ok,
+		error = errText,
+	})
+end
+local function handleStopRequest(key, request)
+	local _condition = request.kind ~= "request"
+	if not _condition then
+		local _id = request.id
+		_condition = not (type(_id) == "string")
+	end
+	if _condition then
+		return nil
+	end
+	local _requestedAt = request.requestedAt
+	if not (type(_requestedAt) == "number") then
+		writeSetting(key, false)
+		return nil
+	end
+	local age = tick() - request.requestedAt
+	if age < -5 or age > REQUEST_TTL_SEC then
+		writeSetting(key, false)
+		return nil
+	end
+	if endTestIssued then
+		writeResult(key, request, false, "StudioTestService:EndTest was already issued for this play session, but the runtime DataModel is still alive.")
+		return nil
+	end
+	if not RunService:IsRunning() or not RunService:IsServer() then
+		writeResult(key, request, false, "StopPlayMonitor is not running in the server DataModel.")
+		return nil
+	end
+	endTestIssued = true
+	local endOk, endErr = pcall(function()
+		return StudioTestService:EndTest("stopped_by_mcp")
+	end)
+	writeResult(key, request, endOk, if endOk then nil else tostring(endErr))
+	if not endOk then
+		endTestIssued = false
+	end
+end
+local function startMonitor()
+	if not pluginRef then
+		warn("[MCP] StopPlayMonitor.startMonitor called before init; skipping")
+		return nil
+	end
+	task.spawn(function()
+		while true do
+			for _, myKey in settingKeys() do
+				local value = readSetting(myKey)
+				if value == true then
+					-- Legacy boolean requests are ambiguous and may be stale from
+					-- a prior crashed session. New stop requests use token payloads.
+					writeSetting(myKey, false)
+				else
+					local payload = decodePayload(value)
+					if payload then
+						handleStopRequest(myKey, payload)
+					end
+				end
+			end
+			task.wait(POLL_INTERVAL_SEC)
+		end
+	end)
+end
+local function requestStop()
+	if not pluginRef then
+		return {
+			ok = false,
+		}
+	end
+	local requestId = HttpService:GenerateGUID(false)
+	local payload = {
+		kind = "request",
+		id = requestId,
+		requestedAt = tick(),
+	}
+	local ok = false
+	for _, myKey in settingKeys() do
+		ok = writePayload(myKey, payload) or ok
+	end
+	return {
+		ok = ok,
+		requestId = if ok then requestId else nil,
+	}
+end
+local function waitForConsumption(requestId)
+	if not pluginRef then
+		return {
+			ok = false,
+			consumed = false,
+			error = "Plugin reference is not initialized.",
+		}
+	end
+	local start = tick()
+	while tick() - start < WAIT_FOR_CONSUMPTION_TIMEOUT_SEC do
+		for _, myKey in settingKeys() do
+			local payload = decodePayload(readSetting(myKey))
+			if payload and payload.kind == "result" and payload.id == requestId then
+				return {
+					ok = payload.ok == true,
+					consumed = true,
+					error = payload.error,
+				}
+			end
+		end
+		task.wait(WAIT_POLL_SEC)
+	end
+	return {
+		ok = false,
+		consumed = false,
+		error = "Timed out waiting for the play-server DataModel to acknowledge stop_playtest.",
+	}
+end
+local function clearPending(requestId)
+	if not pluginRef then
+		return nil
+	end
+	for _, myKey in settingKeys() do
+		if requestId ~= nil then
+			local payload = decodePayload(readSetting(myKey))
+			if payload and payload.id ~= requestId then
+				continue
+			end
+		end
+		writeSetting(myKey, false)
+	end
+end
+return {
+	init = init,
+	ensurePlaceId = ensurePlaceId,
+	startMonitor = startMonitor,
+	requestStop = requestStop,
+	waitForConsumption = waitForConsumption,
+	clearPending = clearPending,
+}
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">UI</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
@@ -6706,7 +7423,7 @@ local function updateTabLabel(connIndex)
 end
 local function init(pluginRef)
 	local CURRENT_VERSION = State.CURRENT_VERSION
-	local screenGui = pluginRef:CreateDockWidgetPluginGuiAsync("MCPServerInterface", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, false, 300, 260, 260, 200))
+	local screenGui = pluginRef:CreateDockWidgetPluginGuiAsync("MCPServerInterface", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 300, 260, 260, 200))
 	screenGui.Title = `MCP Server v{CURRENT_VERSION}`
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Size = UDim2.new(1, 0, 1, 0)
@@ -7204,11 +7921,37 @@ return {
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">Utils</string>
           <string name="Source"><![CDATA[-- Compiled with roblox-ts v3.0.0
 local ScriptEditorService = game:GetService("ScriptEditorService")
+local LUAU_KEYWORDS = {
+	["and"] = true,
+	["break"] = true,
+	["continue"] = true,
+	["do"] = true,
+	["else"] = true,
+	["elseif"] = true,
+	["end"] = true,
+	["export"] = true,
+	["false"] = true,
+	["for"] = true,
+	["function"] = true,
+	["if"] = true,
+	["in"] = true,
+	["local"] = true,
+	["nil"] = true,
+	["not"] = true,
+	["or"] = true,
+	["repeat"] = true,
+	["return"] = true,
+	["then"] = true,
+	["true"] = true,
+	["type"] = true,
+	["until"] = true,
+	["while"] = true,
+}
 local function safeCall(func, ...)
 	local args = { ... }
 	local success, result = pcall(func, unpack(args))
@@ -7219,6 +7962,198 @@ local function safeCall(func, ...)
 		return nil
 	end
 end
+-- Instance paths are dot-joined for simple names ("game.ReplicatedStorage.Mod")
+-- and bracket-quoted for names a dot-split would corrupt: dots, spaces, quotes,
+-- leading digits, Luau keywords → game.ServerScriptService["init.spec"]. Both
+-- forms round-trip through parseInstancePath.
+local function isSimplePathSegment(segment)
+	local _condition = (string.match(segment, "^[%a_][%w_]*$")) ~= nil
+	if _condition then
+		local _segment = segment
+		_condition = not (LUAU_KEYWORDS[_segment] ~= nil)
+	end
+	return _condition
+end
+local function quotePathSegment(segment)
+	local escaped = (string.gsub(segment, "\\", "\\\\"))
+	escaped = (string.gsub(escaped, "\n", "\\n"))
+	escaped = (string.gsub(escaped, "\r", "\\r"))
+	escaped = (string.gsub(escaped, "\t", "\\t"))
+	escaped = (string.gsub(escaped, '"', '\\"'))
+	return `"{escaped}"`
+end
+local function unescapePathSegment(segment)
+	local chars = {}
+	local i = 1
+	while i <= #segment do
+		local _segment = segment
+		local _i = i
+		local _i_1 = i
+		local ch = string.sub(_segment, _i, _i_1)
+		if ch == "\\" and i < #segment then
+			local _segment_1 = segment
+			local _arg0 = i + 1
+			local _arg1 = i + 1
+			local nextChar = string.sub(_segment_1, _arg0, _arg1)
+			if nextChar == "n" then
+				table.insert(chars, "\n")
+			elseif nextChar == "r" then
+				table.insert(chars, "\r")
+			elseif nextChar == "t" then
+				table.insert(chars, "\t")
+			else
+				table.insert(chars, nextChar)
+			end
+			i += 2
+		else
+			table.insert(chars, ch)
+			i += 1
+		end
+	end
+	return table.concat(chars, "")
+end
+local function isCanonicalBracketStart(path, index)
+	local _path = path
+	local _arg0 = index + 1
+	local _arg1 = index + 1
+	local quote = string.sub(_path, _arg0, _arg1)
+	local _condition = (quote == '"' or quote == "'")
+	if _condition then
+		local _path_1 = path
+		local _arg0_1 = index - 1
+		local _arg1_1 = index - 1
+		_condition = string.sub(_path_1, _arg0_1, _arg1_1) ~= "."
+	end
+	return _condition
+end
+local function parseInstancePath(path)
+	local i = 1
+	local len = #path
+	local parts = {}
+	local current = ""
+	if path == "" or path == "game" then
+		return parts
+	end
+	if string.sub(path, 1, 5) == "game." then
+		i = 6
+	elseif string.sub(path, 1, 5) == "game[" then
+		i = 5
+	end
+	while i <= len do
+		local _path = path
+		local _i = i
+		local _i_1 = i
+		local ch = string.sub(_path, _i, _i_1)
+		if ch == "." then
+			if current ~= "" then
+				local _current = current
+				table.insert(parts, _current)
+				current = ""
+				i += 1
+			else
+				local _condition = i > 1
+				if _condition then
+					local _path_1 = path
+					local _arg0 = i - 1
+					local _arg1 = i - 1
+					_condition = string.sub(_path_1, _arg0, _arg1) == "."
+					if _condition then
+						_condition = i < len
+						if _condition then
+							local _path_2 = path
+							local _arg0_1 = i + 1
+							local _arg1_1 = i + 1
+							_condition = string.sub(_path_2, _arg0_1, _arg1_1) ~= "["
+						end
+					end
+				end
+				if _condition then
+					-- Back-compat for previously emitted paths such as
+					-- game.ServerScriptService..dir.ReproScript, where ".dir"
+					-- was an actual instance name.
+					current = "."
+					i += 1
+				else
+					i += 1
+				end
+			end
+		elseif ch == "[" and i < len and isCanonicalBracketStart(path, i) then
+			if current ~= "" then
+				local _current = current
+				table.insert(parts, _current)
+				current = ""
+			end
+			local _path_1 = path
+			local _arg0 = i + 1
+			local _arg1 = i + 1
+			local quote = string.sub(_path_1, _arg0, _arg1)
+			if quote ~= '"' and quote ~= "'" then
+				return nil
+			end
+			local j = i + 2
+			local raw = ""
+			while j <= len do
+				local _path_2 = path
+				local _j = j
+				local _j_1 = j
+				local c = string.sub(_path_2, _j, _j_1)
+				if c == "\\" then
+					if j >= len then
+						return nil
+					end
+					local _path_3 = path
+					local _arg0_1 = j + 1
+					local _arg1_1 = j + 1
+					raw ..= c .. string.sub(_path_3, _arg0_1, _arg1_1)
+					j += 2
+				elseif c == quote then
+					break
+				else
+					raw ..= c
+					j += 1
+				end
+			end
+			local _condition = j > len
+			if not _condition then
+				local _path_2 = path
+				local _j = j
+				local _j_1 = j
+				_condition = string.sub(_path_2, _j, _j_1) ~= quote
+				if not _condition then
+					local _path_3 = path
+					local _arg0_1 = j + 1
+					local _arg1_1 = j + 1
+					_condition = string.sub(_path_3, _arg0_1, _arg1_1) ~= "]"
+				end
+			end
+			if _condition then
+				return nil
+			end
+			local _arg0_1 = unescapePathSegment(raw)
+			table.insert(parts, _arg0_1)
+			i = j + 2
+		else
+			current ..= ch
+			i += 1
+		end
+	end
+	if current ~= "" then
+		local _current = current
+		table.insert(parts, _current)
+	end
+	return parts
+end
+local function getRootSegment(instance)
+	if instance.Parent == game then
+		local ok, service = pcall(function()
+			return game:GetService(instance.ClassName)
+		end)
+		if ok and service == instance then
+			return instance.ClassName
+		end
+	end
+	return instance.Name
+end
 local function getInstancePath(instance)
 	if not instance or instance == game then
 		return "game"
@@ -7226,23 +8161,40 @@ local function getInstancePath(instance)
 	local pathParts = {}
 	local current = instance
 	while current and current ~= game do
-		local _name = current.Name
-		table.insert(pathParts, 1, _name)
+		local _arg0 = getRootSegment(current)
+		table.insert(pathParts, 1, _arg0)
 		current = current.Parent
 	end
-	return `game.{table.concat(pathParts, ".")}`
+	local path = "game"
+	for _, part in pathParts do
+		if isSimplePathSegment(part) then
+			path ..= `.{part}`
+		else
+			path ..= `[{quotePathSegment(part)}]`
+		end
+	end
+	return path
+end
+local function getRootInstance(segment)
+	local ok, service = pcall(function()
+		return game:GetService(segment)
+	end)
+	if ok and service then
+		return service
+	end
+	return game:FindFirstChild(segment)
 end
 local function getInstanceByPath(path)
-	if path == "game" or path == "" then
+	local parts = parseInstancePath(path)
+	if parts == nil then
+		return nil
+	end
+	if #parts == 0 then
 		return game
 	end
-	local cleaned = (string.gsub(path, "^game%.", ""))
-	local parts = {}
-	for part in string.gmatch(cleaned, "[^%.]+") do
-		table.insert(parts, part)
-	end
-	local current = game
-	for _, part in parts do
+	local current = getRootInstance(parts[1])
+	for i = 1, #parts - 1 do
+		local part = parts[i + 1]
 		if not current then
 			return nil
 		end
@@ -7666,6 +8618,20 @@ local function convertPropertyValue(instance, propertyName, propertyValue)
 				end
 				return UDim2.new(_condition_1, _condition_2, _condition_3, _condition_4)
 			end
+			local success, currentVal = pcall(function()
+				return inst[propertyName]
+			end)
+			if success and typeof(currentVal) == "Vector2" then
+				local _condition_1 = (tbl.X)
+				if _condition_1 == nil then
+					_condition_1 = 0
+				end
+				local _condition_2 = (tbl.Y)
+				if _condition_2 == nil then
+					_condition_2 = 0
+				end
+				return Vector2.new(_condition_1, _condition_2)
+			end
 			local _condition_1 = (tbl.X)
 			if _condition_1 == nil then
 				_condition_1 = 0
@@ -7956,11 +8922,11 @@ return {
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="22">
+    <Item class="Folder" referent="24">
       <Properties>
         <string name="Name">include</string>
       </Properties>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">Promise</string>
           <string name="Source"><![CDATA[--[[
@@ -10034,7 +11000,7 @@ return Promise
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">RuntimeLib</string>
           <string name="Source"><![CDATA[local Promise = require(script.Parent.Promise)
@@ -10301,15 +11267,15 @@ return TS
         </Properties>
       </Item>
     </Item>
-    <Item class="Folder" referent="23">
+    <Item class="Folder" referent="25">
       <Properties>
         <string name="Name">node_modules</string>
       </Properties>
-      <Item class="Folder" referent="24">
+      <Item class="Folder" referent="26">
         <Properties>
           <string name="Name">@rbxts</string>
         </Properties>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="23">
         <Properties>
           <string name="Name">services</string>
           <string name="Source"><![CDATA[return setmetatable({}, {

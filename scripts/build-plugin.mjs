@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, readdirSync, writeFileSync, copyFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, readdirSync, writeFileSync, copyFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { homedir } from 'os';
@@ -170,15 +170,28 @@ const includeCount = countModules(includeDir);
 const rbxtsCount = countModules(nodeModulesRbxtsDir);
 console.log(`Built studio-plugin/MCPPlugin.rbxmx (${moduleCount} modules${includeCount > 0 ? `, ${includeCount} runtime includes` : ''}${rbxtsCount > 0 ? `, ${rbxtsCount} @rbxts packages` : ''})`);
 
-const pluginsDir = process.platform === 'win32'
-  ? join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Roblox', 'Plugins')
-  : join(homedir(), 'Documents', 'Roblox', 'Plugins');
-if (existsSync(pluginsDir)) {
-  try {
-    const installPath = join(pluginsDir, 'MCPPlugin.rbxmx');
-    copyFileSync(outputPath, installPath);
-    console.log(`Installed to ${installPath}`);
-  } catch (err) {
-    console.warn(`Could not copy to plugins folder: ${err.message}`);
+function resolvePluginsDir() {
+  if (process.env.MCP_PLUGINS_DIR) return process.env.MCP_PLUGINS_DIR;
+  switch (process.platform) {
+    case 'win32':
+      return join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Roblox', 'Plugins');
+    case 'darwin':
+      return join(homedir(), 'Documents', 'Roblox', 'Plugins');
+    default:
+      // Linux/WSL etc. have no local Studio install; skip rather than fail the
+      // whole build. Set MCP_PLUGINS_DIR to install to a custom location.
+      return undefined;
   }
+}
+
+const pluginsDir = resolvePluginsDir();
+if (pluginsDir) {
+  // Auto-create the folder (fresh installs may lack it) and let copy errors
+  // throw so build:all fails loudly instead of silently shipping no plugin.
+  mkdirSync(pluginsDir, { recursive: true });
+  const installPath = join(pluginsDir, 'MCPPlugin.rbxmx');
+  copyFileSync(outputPath, installPath);
+  console.log(`Installed to ${installPath}`);
+} else {
+  console.warn(`No known Roblox Plugins folder for platform ${process.platform}; skipped install. Set MCP_PLUGINS_DIR to override.`);
 }

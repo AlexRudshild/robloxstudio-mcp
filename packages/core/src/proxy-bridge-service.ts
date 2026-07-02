@@ -1,15 +1,45 @@
-import { BridgeService } from './bridge-service.js';
+import { BridgeService, type PluginInstance } from './bridge-service.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export class ProxyBridgeService extends BridgeService {
   private primaryBaseUrl: string;
   readonly proxyInstanceId: string;
   private proxyRequestTimeout = 30000;
+  private cachedInstances: PluginInstance[] = [];
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private static REFRESH_INTERVAL_MS = 1000;
 
   constructor(primaryBaseUrl: string) {
     super();
     this.primaryBaseUrl = primaryBaseUrl;
     this.proxyInstanceId = uuidv4();
+    // The proxy's own instances map is always empty — plugins register with
+    // the primary. Mirror the primary's list so getInstances() consumers
+    // (get_connected_instances) see the real peers.
+    this.refreshInstances();
+    this.refreshTimer = setInterval(() => this.refreshInstances(), ProxyBridgeService.REFRESH_INTERVAL_MS);
+  }
+
+  private async refreshInstances(): Promise<void> {
+    try {
+      const res = await fetch(`${this.primaryBaseUrl}/instances`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { instances?: PluginInstance[] };
+      if (Array.isArray(body.instances)) this.cachedInstances = body.instances;
+    } catch {
+      // Primary unreachable — keep last-known list
+    }
+  }
+
+  override getInstances(): PluginInstance[] {
+    return this.cachedInstances;
+  }
+
+  stop(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
   }
 
   override async sendRequest(endpoint: string, data: any, target = 'edit'): Promise<any> {

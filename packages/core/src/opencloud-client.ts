@@ -236,7 +236,8 @@ export class OpenCloudClient {
       const arrayBuffer = await imageResponse.arrayBuffer();
       const base64 = Buffer.from(arrayBuffer).toString('base64');
       return { base64, mimeType: 'image/png' };
-    } catch {
+    } catch (err) {
+      console.error(`Warning: thumbnail fetch failed: ${(err as Error).message}`);
       return null;
     }
   }

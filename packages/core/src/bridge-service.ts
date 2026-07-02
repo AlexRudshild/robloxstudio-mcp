@@ -23,14 +23,28 @@ const STALE_INSTANCE_MS = 30000;
 export class BridgeService {
   private pendingRequests: Map<string, PendingRequest> = new Map();
   private instances: Map<string, PluginInstance> = new Map();
-  private nextClientIndex = 1;
   private requestTimeout = 30000;
 
   registerInstance(instanceId: string, role: string): string {
     let assignedRole = role;
     if (role === 'client') {
-      assignedRole = `client-${this.nextClientIndex}`;
-      this.nextClientIndex++;
+      const prior = this.instances.get(instanceId);
+      if (prior && /^client-\d+$/.test(prior.role)) {
+        // Same plugin re-registering (e.g. re-ready after server restart) keeps its slot.
+        assignedRole = prior.role;
+      } else {
+        // Lowest unused index, scanned from live instances: the first client is
+        // always client-1 and a reconnect refills its old slot instead of
+        // inflating N forever (which silently broke targets the LLM learned).
+        const used = new Set<number>();
+        for (const inst of this.instances.values()) {
+          const [, num] = inst.role.match(/^client-(\d+)$/) ?? [];
+          if (num !== undefined) used.add(parseInt(num));
+        }
+        let index = 1;
+        while (used.has(index)) index++;
+        assignedRole = `client-${index}`;
+      }
     }
 
     // Evict prior entries with the same role — singleton roles ("edit", "server")

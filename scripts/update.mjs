@@ -24,5 +24,5 @@ run('git', ['pull', '--ff-only'], 'git pull');
 run('npm', ['install'], 'npm install');
 run('npm', ['run', 'build:all'], 'npm run build:all');
 
-console.log('\nUpdate complete. Plugin reinstalled to Roblox Plugins folder if it exists.');
+console.log('\nUpdate complete. Plugin reinstalled to Roblox Plugins folder.');
 console.log('Restart Roblox Studio to load the new plugin build.');

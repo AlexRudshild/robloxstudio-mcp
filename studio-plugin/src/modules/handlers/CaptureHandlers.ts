@@ -1,3 +1,5 @@
+import RenderMonitor from "../RenderMonitor";
+
 const CaptureService = game.GetService("CaptureService");
 const AssetService = game.GetService("AssetService");
 
@@ -72,6 +74,11 @@ function readPixelsTiled(img: EditableImage, w: number, h: number): buffer {
 }
 
 function captureScreenshotData(): unknown {
+	const notRendering = RenderMonitor.notRenderingReason();
+	if (notRendering !== undefined) {
+		return { error: notRendering, errorCode: "window_not_rendering", retryable: true };
+	}
+
 	let contentId: string | undefined;
 
 	CaptureService.CaptureScreenshot((id: string) => {
@@ -82,7 +89,9 @@ function captureScreenshotData(): unknown {
 	while (contentId === undefined) {
 		if (tick() - startTime > 10) {
 			return {
-				error: "Screenshot capture timed out. Ensure the Studio viewport is visible and you are in Edit mode (not Play mode). Known Roblox bug: capture may fail if viewport renders a solid color.",
+				error: "Screenshot capture timed out (CaptureScreenshot callback never fired). Ensure the Studio edit window is visible and you are in Edit mode (not Play mode) — restore it so the viewport renders. (Known Roblox bug: capture can also fail if the viewport renders a solid color.)",
+				errorCode: "capture_timeout",
+				retryable: true,
 			};
 		}
 		task.wait(0.1);
